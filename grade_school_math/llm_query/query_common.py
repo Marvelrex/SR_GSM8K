@@ -12,14 +12,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 DEFAULT_DATASET_PATH = PROJECT_ROOT / "grade_school_math/data/train.jsonl"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "structure_rationale"
-DEFAULT_STRATEGY = "Step"
+DEFAULT_STRATEGY = "step"
 
 PROMPT_STRATEGIES = {
-    "Normal": "NORMAL_PART_THREE",
-    "Fixed": "STRUCTURED_FIXED_PART_THREE",
-    "Step": "STRUCTURED_STEP_PART_THREE",
+    "normal": "NORMAL_PART_THREE",
+    "fixed": "STRUCTURED_FIXED_PART_THREE",
+    "step": "STRUCTURED_STEP_PART_THREE",
     "freeform": "STRUCTURED_FREE_FORM_PART_THREE",
-    "Noise": "STRUCTURED_NOISE_PART_THREE",
+    "noisy": "STRUCTURED_NOISE_PART_THREE",
 }
 
 ID_FIELDS: Sequence[str] = ("id", "question_id", "sample_id")

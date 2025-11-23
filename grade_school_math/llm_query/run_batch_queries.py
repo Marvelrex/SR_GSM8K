@@ -18,14 +18,14 @@ QUERY_SCRIPT_GROK = PROJECT_ROOT / "llm_query" / "query_grok.py"
 QUERY_SCRIPT_GEMMA = PROJECT_ROOT / "llm_query" / "query_gemma.py"
 QUERY_SCRIPT_LLAMA = PROJECT_ROOT / "llm_query" / "query_llama.py"
 
-DEFAULT_STRATEGIES = ["Normal", "noisy", "Step", "Fixed", "freeform"]
+DEFAULT_STRATEGIES = ["normal", "noisy", "step", "fixed", "freeform"]
 
 STRATEGY_NORMALIZATION = {
-    "normal": "Normal",
-    "noisy": "Noisy",
-    "step": "Step",
-    "fixed": "Fixed",
-    "freeform": "Free-Form",
+    "normal": "normal",
+    "noisy": "noisy",
+    "step": "step",
+    "fixed": "fixed",
+    "freeform": "freeform",
 }
 
 
@@ -171,7 +171,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--strategies",
         nargs="+",
         default=DEFAULT_STRATEGIES,
-        help="List of prompt strategies to run (default: Normal Noise Step Fixed Free-Form).",
+        help="List of prompt strategies to run (default: normal step fixed noisy freeform).",
     )
     parser.add_argument(
         "--output-root",
