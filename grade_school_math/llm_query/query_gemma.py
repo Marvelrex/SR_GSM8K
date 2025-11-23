@@ -22,13 +22,15 @@ from query_common import (
     DEFAULT_DATASET_PATH,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_STRATEGY,
-    PROMPT_STRATEGIES,
+    build_common_arg_parser,
     build_prompt_texts,
     load_existing_results,
     load_samples,
+    normalize_strategy,
     parse_model_output,
     pick_part_three_prompt,
     sample_identifier,
+    set_global_seed,
     split_answer_and_rationale,
     write_results, _entry_key,
 )
@@ -56,52 +58,10 @@ def ask_model(
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Combine GSM8K questions with prompts and query a local Gemma model."
+    return build_common_arg_parser(
+        description="Combine GSM8K questions with prompts and query a local Gemma model.",
+        default_model=DEFAULT_MODEL,
     )
-    parser.add_argument(
-        "--dataset-path",
-        type=Path,
-        default=DEFAULT_DATASET_PATH,
-        help=f"Path to the GSM8K jsonl file (default: {DEFAULT_DATASET_PATH})",
-    )
-    parser.add_argument(
-        "--sample-index",
-        type=int,
-        default=0,
-        help="Zero-based row index to start from (default: 0).",
-    )
-    parser.add_argument(
-        "--num-samples",
-        type=int,
-        default=1,
-        help="Number of consecutive samples to process (default: 1).",
-    )
-    parser.add_argument(
-        "--strategy",
-        type=str,
-        default=DEFAULT_STRATEGY,
-        choices=list(PROMPT_STRATEGIES.keys()),
-        help="Prompt strategy to use (default: Step).",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default=DEFAULT_MODEL,
-        help=f"Hugging Face model identifier to query (default: {DEFAULT_MODEL}).",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help=f"Directory to store responses (default: {DEFAULT_OUTPUT_DIR}).",
-    )
-    parser.add_argument(
-        "--show-only",
-        action="store_true",
-        help="Print the samples and prompt but do not run the model.",
-    )
-    return parser
 
 
 def main() -> None:
@@ -109,9 +69,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # --- Model and Tokenizer Initialization ---
-    th.manual_seed(42)
-    if th.cuda.is_available():
-        th.cuda.manual_seed_all(42)
+    set_global_seed(42)
     print(f"Loading model: {args.model}")
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
@@ -125,7 +83,7 @@ def main() -> None:
     print(f"Model loaded on device: {device}")
     # --- End Initialization ---
 
-    strategy = args.strategy or DEFAULT_STRATEGY
+    strategy = normalize_strategy(args.strategy, default=DEFAULT_STRATEGY)
     request_retries = 3
     base_system_prompt = getattr(
         prompt_module,

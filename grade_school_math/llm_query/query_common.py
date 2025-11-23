@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import argparse
+import ast
 import json
+import random
 import re
 import sys
 from pathlib import Path
@@ -24,6 +27,83 @@ PROMPT_STRATEGIES = {
 
 ID_FIELDS: Sequence[str] = ("id", "question_id", "sample_id")
 SANITIZE_RE = re.compile(r"[^0-9A-Za-z_.-]+")
+
+
+def set_global_seed(seed: int = 42) -> None:
+    """Best-effort global seeding for reproducibility across libs."""
+    random.seed(seed)
+    try:  # numpy is optional
+        import numpy as np  # type: ignore
+        np.random.seed(seed)
+    except Exception:
+        pass
+
+    try:  # torch is optional
+        import torch as th  # type: ignore
+        th.manual_seed(seed)
+        if th.cuda.is_available():
+            th.cuda.manual_seed_all(seed)
+    except Exception:
+        pass
+
+
+def normalize_strategy(name: str | None, default: str = DEFAULT_STRATEGY) -> str:
+    """Normalize a strategy string to a known key."""
+    if not name:
+        candidate = default
+    else:
+        candidate = name.strip().lower()
+    if candidate in PROMPT_STRATEGIES:
+        return candidate
+    valid = ", ".join(PROMPT_STRATEGIES)
+    raise SystemExit(f"Unknown prompt strategy '{name}'. Valid options: {valid}")
+
+
+def build_common_arg_parser(description: str, default_model: str) -> argparse.ArgumentParser:
+    """Create an argument parser shared by query scripts."""
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument(
+        "--dataset-path",
+        type=Path,
+        default=DEFAULT_DATASET_PATH,
+        help=f"Path to the GSM8K jsonl file (default: {DEFAULT_DATASET_PATH}).",
+    )
+    parser.add_argument(
+        "--sample-index",
+        type=int,
+        default=0,
+        help="Zero-based row index to start from (default: 0).",
+    )
+    parser.add_argument(
+        "--num-samples",
+        type=int,
+        default=1,
+        help="Number of consecutive samples to process (default: 1).",
+    )
+    parser.add_argument(
+        "--strategy",
+        type=str,
+        default=DEFAULT_STRATEGY,
+        help="Prompt strategy to use. See query_common.PROMPT_STRATEGIES for options.",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=default_model,
+        help=f"Model identifier to query (default: {default_model}).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"Directory to store responses (default: {DEFAULT_OUTPUT_DIR}).",
+    )
+    parser.add_argument(
+        "--show-only",
+        action="store_true",
+        help="Print the samples and prompt but do not call the model.",
+    )
+    return parser
 
 
 def _entry_key(entry: Dict[str, Any]) -> str:
@@ -82,7 +162,7 @@ def _coerce_number(value: Any) -> Any:
 
 
 def load_samples(dataset_path: Path, start_index: int, num_samples: int) -> List[Tuple[int, dict]]:
-    """Load a consecutive slice of GSM8K samples."""
+    """Load a consecutive slice of GSM8K samples (gracefully stops at EOF)."""
     if start_index < 0 or num_samples <= 0:
         raise ValueError("sample index must be >= 0 and num-samples must be positive.")
     if not dataset_path.exists():
@@ -102,9 +182,9 @@ def load_samples(dataset_path: Path, start_index: int, num_samples: int) -> List
                 break
 
     if len(collected) < num_samples:
-        raise IndexError(
-            f"Requested {num_samples} samples starting at index {start_index}, "
-            f"but {dataset_path} ended early."
+        print(
+            f"Warning: Requested {num_samples} samples starting at index {start_index}, "
+            f"but only {len(collected)} were available in {dataset_path}."
         )
     return collected
 
@@ -152,31 +232,55 @@ def build_prompt_texts(system_prompt: str, user_prompt: str, question: str) -> T
 
 
 def parse_model_output(response_text: str) -> Tuple[Any, Any]:
-    """Extract rationale and answer from a model's JSON output."""
-    if isinstance(response_text, str):
-        # Find the JSON block, which might be wrapped in markdown
-        match = re.search(r"```json\n({.*?})\n```", response_text, re.DOTALL)
-        if match:
-            json_text = match.group(1)
-        else:
-            # Fallback for plain JSON or JSON-like text
-            brace_start = response_text.find("{")
-            brace_end = response_text.rfind("}")
-            if brace_start != -1 and brace_end != -1 and brace_start < brace_end:
-                json_text = response_text[brace_start : brace_end + 1]
-            else:
-                return None, None  # No JSON found
-    else:
-        return None, None  # Input is not a string
+    """Extract rationale and answer from a model's JSON output.
 
-    try:
-        data = json.loads(json_text)
-    except (TypeError, json.JSONDecodeError):
+    Attempts to repair slightly invalid JSON (e.g., single quotes) using
+    ast.literal_eval if json.loads fails. Returns (None, None) when parsing
+    cannot be recovered so callers can keep raw text and leave response_ans null.
+    """
+    if not isinstance(response_text, str):
+        return None, None
+
+    json_text = _extract_json_text(response_text)
+    if json_text is None:
+        return None, None
+
+    data = _parse_json_or_literal(json_text)
+    if data is None:
         return None, None
 
     rationale = data.get("rationale")
     answer = _coerce_number(data.get("ans"))
     return rationale, answer
+
+
+def _extract_json_text(response_text: str) -> str | None:
+    """Pull a JSON-like block from the response text."""
+    match = re.search(r"```json\n({.*?})\n```", response_text, re.DOTALL)
+    if match:
+        return match.group(1)
+
+    brace_start = response_text.find("{")
+    brace_end = response_text.rfind("}")
+    if brace_start != -1 and brace_end != -1 and brace_start < brace_end:
+        return response_text[brace_start : brace_end + 1]
+    return None
+
+
+def _parse_json_or_literal(json_text: str) -> Dict[str, Any] | None:
+    """Try strict JSON first, then fall back to literal_eval for common issues."""
+    try:
+        return json.loads(json_text)
+    except (TypeError, json.JSONDecodeError):
+        pass
+
+    try:
+        candidate = ast.literal_eval(json_text)
+        if isinstance(candidate, dict):
+            return candidate
+    except Exception:
+        pass
+    return None
 
 
 def _content_chunks(response_obj) -> List[str]:

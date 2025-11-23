@@ -25,14 +25,16 @@ from query_common import (
     DEFAULT_DATASET_PATH,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_STRATEGY,
-    PROMPT_STRATEGIES,
+    build_common_arg_parser,
     build_prompt_texts,
     extract_response_text,
     load_existing_results,
     load_samples,
+    normalize_strategy,
     parse_model_output,
     pick_part_three_prompt,
     sample_identifier,
+    set_global_seed,
     split_answer_and_rationale,
     write_results, ID_FIELDS, SANITIZE_RE, _entry_key,
 )
@@ -97,59 +99,18 @@ def sample_identifier(sample: dict, dataset_path: Path, absolute_index: int) -> 
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Combine GSM8K questions with utils.prompts and query Grok-3-mini."
+    return build_common_arg_parser(
+        description="Combine GSM8K questions with utils.prompts and query Grok-3-mini.",
+        default_model=DEFAULT_MODEL,
     )
-    parser.add_argument(
-        "--dataset-path",
-        type=Path,
-        default=DEFAULT_DATASET_PATH,
-        help=f"Path to the GSM8K jsonl file (default: {DEFAULT_DATASET_PATH})",
-    )
-    parser.add_argument(
-        "--sample-index",
-        type=int,
-        default=0,
-        help="Zero-based row index to start from (default: 0).",
-    )
-    parser.add_argument(
-        "--num-samples",
-        type=int,
-        default=1,
-        help="Number of consecutive samples to process (default: 1).",
-    )
-    parser.add_argument(
-        "--strategy",
-        type=str,
-        default=DEFAULT_STRATEGY,
-        choices=list(PROMPT_STRATEGIES.keys()),
-        help="Prompt strategy to use (default: Step).",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default=DEFAULT_MODEL,
-        help=f"Grok model identifier to query (default: {DEFAULT_MODEL}).",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help=f"Directory to store responses (default: {DEFAULT_OUTPUT_DIR}).",
-    )
-    parser.add_argument(
-        "--show-only",
-        action="store_true",
-        help="Print the samples and prompt but do not call the OpenAI API.",
-    )
-    return parser
 
 
 def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
+    set_global_seed(42)
 
-    strategy = args.strategy or DEFAULT_STRATEGY
+    strategy = normalize_strategy(args.strategy, default=DEFAULT_STRATEGY)
     request_retries = 3
     base_system_prompt = getattr(
         prompt_module,

@@ -27,6 +27,7 @@ Think through the solution by reasoning in three labeled parts:
 - Calculation: Provide the final numerical computation in one short sentence.
 
 Then return ONLY a valid JSON object with the following structure:
+
 {
   "rationale": {
     "Understanding": "<one or two short sentence>",
@@ -44,9 +45,10 @@ Requirements:
 
 STRUCTURED_STEP_PART_THREE = """
 Think through the solution step by step. Break the reasoning into a small number of concise labeled steps 
-(typically one to five steps depending on difficulty). Each step should contain no more than three short sentences.
+(The number of steps depends on question difficulty but no more than five steps). Each step should contain no more than three short sentences.
 
 Then return ONLY a valid JSON object with the following structure:
+
 {
   "rationale": {
     "step_one": "<no more than three sentences>",
@@ -70,6 +72,7 @@ Think through the solution by reasoning in two labeled parts:
 - Derivation: Show the essential mathematical steps or transformations needed to solve it, no more than four short sentences (you may include simple equations).
 
 Then return ONLY a valid JSON object with the following structure:
+
 {
   "rationale": {
     "Understanding": "<one or two short sentence>",
