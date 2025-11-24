@@ -267,8 +267,8 @@ def tokenize_examples(
     rationale_weight: float,
 ) -> dict:
     chat = build_messages(example, instructions)
-    assistant_json = chat[-1]["content"]
-    chat_text = tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=False)
+    assistant_json = str(chat[-1]["content"])
+    chat_text = format_chat(tokenizer, chat, add_generation_prompt=False)
 
     tokenized = tokenizer(
         chat_text,
@@ -282,8 +282,18 @@ def tokenize_examples(
     offsets = tokenized["offset_mapping"]
 
     # Identify rationale/answer spans in character space
-    rat_text = example.get("response_rationale", "") or ""
-    ans_text = example.get("response_ans", example.get("option", "")) or ""
+    rat_val = example.get("response_rationale", "")
+    # response_rationale may be dict (structured); stringify for span search
+    if isinstance(rat_val, (dict, list)):
+        rat_text = json.dumps(rat_val, ensure_ascii=False)
+    else:
+        rat_text = str(rat_val or "")
+
+    ans_val = example.get("response_ans", example.get("option", ""))
+    if isinstance(ans_val, (dict, list)):
+        ans_text = json.dumps(ans_val, ensure_ascii=False)
+    else:
+        ans_text = str(ans_val or "")
 
     assistant_start = chat_text.rfind(assistant_json)
     rat_range = ans_range = None
@@ -324,6 +334,20 @@ def build_messages_for_inference(example: dict, instructions: str) -> List[Dict[
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
+
+
+def format_chat(tokenizer, chat: List[Dict[str, str]], add_generation_prompt: bool) -> str:
+    """Format chat text; fallback if tokenizer lacks chat_template (e.g., Llama-2)."""
+    if getattr(tokenizer, "chat_template", None):
+        return tokenizer.apply_chat_template(
+            chat, tokenize=False, add_generation_prompt=add_generation_prompt
+        )
+    system = chat[0]["content"] if chat and chat[0]["role"] == "system" else ""
+    user = chat[1]["content"] if len(chat) > 1 and chat[1]["role"] == "user" else ""
+    assistant = chat[2]["content"] if len(chat) > 2 and chat[2]["role"] == "assistant" else ""
+    if add_generation_prompt:
+        return f"<s>[INST] <<SYS>>\n{system}\n<</SYS>>\n\n{user} [/INST]"
+    return f"<s>[INST] <<SYS>>\n{system}\n<</SYS>>\n\n{user} [/INST] {assistant}</s>"
 
 
 def parse_answer_field(answer_text: str) -> tuple[str, str]:
@@ -532,9 +556,7 @@ def run_generation(
             if row_id in completed_ids:
                 continue
             messages = build_messages_for_inference(row, instructions)
-            prompt_text = tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
+            prompt_text = format_chat(tokenizer, messages, add_generation_prompt=True)
             inputs = tokenizer(
                 prompt_text, return_tensors="pt", truncation=True, max_length=max_len
             ).to(model.device)
