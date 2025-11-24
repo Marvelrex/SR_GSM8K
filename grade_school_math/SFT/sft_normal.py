@@ -10,6 +10,11 @@ from typing import Dict, List
 
 import torch
 from datasets import Dataset
+try:
+    from peft import LoraConfig, get_peft_model
+except ImportError:  # pragma: no cover - optional
+    LoraConfig = None  # type: ignore
+    get_peft_model = None  # type: ignore
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -121,11 +126,21 @@ def main():
     parser.add_argument("--grad-accum-steps", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--bf16", action="store_true", help="Use bfloat16 (default: fp16 on CUDA, fp32 on CPU).")
     parser.add_argument(
         "--pad-to-max-length",
         action="store_true",
         help="Pad sequences to max_seq_len (default: pad to longest in batch).",
     )
+    parser.add_argument(
+        "--use-lora",
+        action="store_true",
+        default=False,
+        help="Enable LoRA adapters (default: off).",
+    )
+    parser.add_argument("--lora-r", type=int, default=64, help="LoRA rank.")
+    parser.add_argument("--lora-alpha", type=int, default=128, help="LoRA alpha.")
+    parser.add_argument("--lora-dropout", type=float, default=0.05, help="LoRA dropout.")
     parser.add_argument(
         "--generate",
         action="store_true",
@@ -158,6 +173,18 @@ def main():
         device_map="auto",
         dtype=dtype,
     )
+    if args.use_lora:
+        if LoraConfig is None or get_peft_model is None:
+            raise ImportError("peft is required for --use-lora. Install it or rerun without --use-lora.")
+        lora_config = LoraConfig(
+            r=args.lora_r,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        model = get_peft_model(model, lora_config)
 
     def _tokenize(batch):
         return tokenize_examples(batch, tokenizer, args.max_seq_len, args.pad_to_max_length)
@@ -181,7 +208,8 @@ def main():
         weight_decay=0.0,
         logging_steps=10,
         save_strategy="epoch",
-        bf16=torch.cuda.is_available(),
+        bf16=args.bf16 and torch.cuda.is_available(),
+        fp16=(not args.bf16) and torch.cuda.is_available(),
         optim="adamw_torch",
     )
 
