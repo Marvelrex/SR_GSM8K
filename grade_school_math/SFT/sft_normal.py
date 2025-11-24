@@ -62,7 +62,7 @@ def build_messages(example: Dict) -> List[Dict[str, str]]:
     ]
 
 
-def tokenize_examples(examples, tokenizer, max_len: int):
+def tokenize_examples(examples, tokenizer, max_len: int, pad_to_max: bool):
     if isinstance(examples, dict):
         keys = list(examples.keys())
         length = len(examples[keys[0]]) if keys else 0
@@ -84,9 +84,10 @@ def tokenize_examples(examples, tokenizer, max_len: int):
     texts = tokenizer.apply_chat_template(
         chats, tokenize=False, add_generation_prompt=False
     )
+    padding = "max_length" if pad_to_max else "longest"
     tokenized = tokenizer(
         texts,
-        padding="max_length",
+        padding=padding,
         truncation=True,
         max_length=max_len,
         return_tensors=None,
@@ -100,13 +101,7 @@ def main():
     parser.add_argument(
         "--train-file",
         type=Path,
-        default=PROJECT_ROOT
-        / "data"
-        / "structure_rationale"
-        / "gpt5"
-        / "third_run"
-        / "normal"
-        / "filtered_normal_results.jsonl",
+        default=PROJECT_ROOT / "filtered_gpt5_rationales" / "filtered_normal.jsonl",
     )
     parser.add_argument(
         "--test-file",
@@ -126,6 +121,11 @@ def main():
     parser.add_argument("--grad-accum-steps", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--pad-to-max-length",
+        action="store_true",
+        help="Pad sequences to max_seq_len (default: pad to longest in batch).",
+    )
     parser.add_argument(
         "--generate",
         action="store_true",
@@ -150,14 +150,17 @@ def main():
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
+    has_cuda = torch.cuda.is_available()
+    dtype = torch.bfloat16 if has_cuda else torch.float32
+
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
+        dtype=dtype,
     )
 
     def _tokenize(batch):
-        return tokenize_examples(batch, tokenizer, args.max_seq_len)
+        return tokenize_examples(batch, tokenizer, args.max_seq_len, args.pad_to_max_length)
 
     tokenized_ds = train_ds.map(
         _tokenize,

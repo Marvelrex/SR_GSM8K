@@ -11,8 +11,16 @@ from transformers.trainer_utils import get_last_checkpoint
 
 
 def has_final_weights(output_dir: Path) -> bool:
-    # Treat presence of top-level pytorch_model.bin as completion
-    return (output_dir / "pytorch_model.bin").exists()
+    # Detect a completed save (covers sharded safetensors as well)
+    if (output_dir / "pytorch_model.bin").exists():
+        return True
+    if (output_dir / "model.safetensors").exists():
+        return True
+    if (output_dir / "model.safetensors.index.json").exists():
+        return True
+    if list(output_dir.glob("model-*-of-*.safetensors")):
+        return True
+    return False
 
 
 def run_size(
@@ -64,20 +72,14 @@ def main():
     parser.add_argument(
         "--train-file",
         type=Path,
-        default=Path("..")
-        / "data"
-        / "structure_rationale"
-        / "gpt5"
-        / "third_run"
-        / "normal"
-        / "filtered_normal_results.jsonl",
+        default=Path("filtered_gpt5_rationales") / "filtered_normal.jsonl",
         help="Path to filtered normal JSONL.",
     )
     parser.add_argument(
         "--extra-args",
-        nargs="*",
+        nargs=argparse.REMAINDER,
         default=[],
-        help="Additional args passed to sft_normal.py (e.g., --num-epochs 1 --batch-size 2).",
+        help="Args passed through to sft_normal.py (e.g., --extra-args --num-epochs 1 --batch-size 2).",
     )
     args = parser.parse_args()
 
