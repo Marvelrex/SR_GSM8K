@@ -384,7 +384,7 @@ def maybe_apply_lora(model: AutoModelForCausalLM, cfg: DistillConfig):
 class WeightedTrainer(Trainer):
     """Trainer with per-token loss weights."""
 
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         weights = inputs.pop("loss_weights", None)
         labels = inputs.get("labels")
         outputs = model(**inputs)
