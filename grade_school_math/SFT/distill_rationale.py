@@ -41,6 +41,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
+from transformers.trainer_utils import get_last_checkpoint
 
 try:
     from peft import LoraConfig, get_peft_model
@@ -406,7 +407,12 @@ def run_distillation(cfg: DistillConfig) -> None:
         train_dataset=tokenized_ds,
         data_collator=data_collator,
     )
-    trainer.train()
+    resume_ckpt = None
+    last_ckpt = get_last_checkpoint(str(cfg.output_dir)) if cfg.output_dir.exists() else None
+    if last_ckpt:
+        resume_ckpt = last_ckpt
+        print(f"Resuming from checkpoint: {resume_ckpt}", flush=True)
+    trainer.train(resume_from_checkpoint=resume_ckpt)
     trainer.save_model(str(cfg.output_dir))
     tokenizer.save_pretrained(str(cfg.output_dir))
 
@@ -436,8 +442,26 @@ def run_generation(
     model.eval()
     rows = load_jsonl(test_path, limit=max_rows)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", encoding="utf-8") as handle:
+
+    completed_ids: set[str] = set()
+    if out_path.exists():
+        try:
+            with out_path.open("r", encoding="utf-8") as existing:
+                for line in existing:
+                    try:
+                        obj = json.loads(line)
+                        if "index" in obj:
+                            completed_ids.add(str(obj["index"]))
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            pass
+
+    with out_path.open("a", encoding="utf-8") as handle:
         for idx, row in enumerate(rows):
+            row_id = str(row.get("index", f"test_{idx:05d}"))
+            if row_id in completed_ids:
+                continue
             messages = build_messages_for_inference(row, instructions)
             prompt_text = tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True
@@ -461,7 +485,7 @@ def run_generation(
             handle.write(
                 json.dumps(
                     {
-                        "index": row.get("index", f"test_{idx:05d}"),
+                        "index": row_id,
                         "question": row.get("question"),
                         "gold_rationale": rationale_part,
                         "gold_ans": ans_part,
@@ -471,6 +495,7 @@ def run_generation(
                 )
                 + "\n"
             )
+            handle.flush()
 
 
 def main() -> None:
