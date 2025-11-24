@@ -95,6 +95,18 @@ def parse_args() -> argparse.Namespace:
         default="meta-llama/Llama-3.2-1B-Instruct",
         help="Model name/id to pass through (default: meta-llama/Llama-3.2-1B-Instruct).",
     )
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=Path("/home/jyang001/scratch"),
+        help="Base directory to store model checkpoints (default: /home/jyang001/scratch).",
+    )
+    parser.add_argument(
+        "--pred-root",
+        type=Path,
+        default=Path("/home/jyang001/jyang001/projects/SR_GSM8K/grade_school_math"),
+        help="Base directory to store prediction JSONL files (default: project root).",
+    )
     return parser.parse_args()
 
 
@@ -147,12 +159,21 @@ def build_base_cmd(
     return cmd
 
 
-def run_experiment(train_size: int, base_cmd: list[str], mode: str, strategy: str) -> None:
-    scratch_root = Path("/home/jyang001/scratch")
+def run_experiment(train_size: int, base_cmd: list[str], mode: str, strategy: str, args: argparse.Namespace) -> None:
     suffix = "structured" if mode == "structured" else "normal"
     strat_suffix = f"_{strategy}" if mode == "structured" else ""
-    output_dir = scratch_root / f"{suffix}{strat_suffix}_{Path(base_cmd[base_cmd.index('--model-name')+1]).name}_ts{train_size}"
-    cmd = base_cmd + [
+    model_name_arg = Path(base_cmd[base_cmd.index("--model-name") + 1]).name
+    output_dir = args.output_root / f"{model_name_arg}" / f"{suffix}{strat_suffix}_ts{train_size}"
+    # If a custom gen-output-file is not provided, we set one per run under pred_root
+    run_pred_dir = args.pred_root / f"{model_name_arg}" / f"{suffix}{strat_suffix}_ts{train_size}"
+    run_pred_dir.mkdir(parents=True, exist_ok=True)
+    dataset_label = (args.test_file or Path("test")).stem
+    default_pred = run_pred_dir / f"{suffix}{strat_suffix}_{model_name_arg}_{dataset_label}_{train_size}.jsonl"
+
+    cmd = list(base_cmd)
+    if args.generate and not args.gen_output_file:
+        cmd += ["--gen-output-file", str(default_pred)]
+    cmd += [
         "--train-size",
         str(train_size),
         "--output-dir",
@@ -167,7 +188,7 @@ def main() -> None:
     data_path = args.data_file or default_data_file(args.mode, args.strategy)
     base_cmd = build_base_cmd(args.mode, data_path, args.strategy, args.intersection_file, args)
     for size in args.train_sizes:
-        run_experiment(size, base_cmd, args.mode, args.strategy)
+        run_experiment(size, base_cmd, args.mode, args.strategy, args)
 
 
 if __name__ == "__main__":
