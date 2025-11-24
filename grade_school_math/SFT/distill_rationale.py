@@ -41,6 +41,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
+import torch.nn.functional as F
 from transformers.trainer_utils import get_last_checkpoint
 
 try:
@@ -106,6 +107,7 @@ class DistillConfig:
     max_gen_samples: Optional[int]
     max_new_tokens: int
     train_size: Optional[int]
+    rationale_weight: float
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -177,6 +179,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=256,
         help="Max new tokens to generate (default: 256).",
+    )
+    parser.add_argument(
+        "--rationale-weight",
+        type=float,
+        default=0.5,
+        help="Relative loss weight for rationale tokens vs answer tokens (default: 0.5).",
     )
     return parser
 
@@ -251,30 +259,61 @@ def build_messages(example: dict, instructions: str) -> List[Dict[str, str]]:
 
 
 def tokenize_examples(
-    examples: dict,
+    example: dict,
     tokenizer: AutoTokenizer,
     max_length: int,
     instructions: str,
     pad_to_max: bool,
+    rationale_weight: float,
 ) -> dict:
-    chats = [
-        build_messages(
-            {key: examples[key][i] for key in examples.keys()},
-            instructions,
-        )
-        for i in range(len(next(iter(examples.values()))))
-    ]
-    text_batch = tokenizer.apply_chat_template(
-        chats, tokenize=False, add_generation_prompt=False
-    )
-    padding = "max_length" if pad_to_max else "longest"
+    chat = build_messages(example, instructions)
+    assistant_json = chat[-1]["content"]
+    chat_text = tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=False)
+
     tokenized = tokenizer(
-        text_batch,
+        chat_text,
         truncation=True,
         max_length=max_length,
-        padding=padding,
+        padding="max_length" if pad_to_max else "max_length",
+        return_offsets_mapping=True,
     )
-    tokenized["labels"] = tokenized["input_ids"].copy()
+    input_ids = tokenized["input_ids"]
+    labels = input_ids.copy()
+    offsets = tokenized["offset_mapping"]
+
+    # Identify rationale/answer spans in character space
+    rat_text = example.get("response_rationale", "") or ""
+    ans_text = example.get("response_ans", example.get("option", "")) or ""
+
+    assistant_start = chat_text.rfind(assistant_json)
+    rat_range = ans_range = None
+    if assistant_start != -1:
+        if rat_text:
+            rat_pos = assistant_json.find(rat_text)
+            if rat_pos != -1:
+                rat_range = (assistant_start + rat_pos, assistant_start + rat_pos + len(rat_text))
+        if ans_text:
+            ans_pos = assistant_json.find(str(ans_text))
+            if ans_pos != -1:
+                ans_range = (assistant_start + ans_pos, assistant_start + ans_pos + len(str(ans_text)))
+
+    weights = [0.0 for _ in labels]
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
+    for i, (start, end) in enumerate(offsets):
+        if labels[i] == pad_id:
+            labels[i] = -100
+            continue
+        if ans_range and start < ans_range[1] and end > ans_range[0]:
+            weights[i] = 1.0
+        elif rat_range and start < rat_range[1] and end > rat_range[0]:
+            weights[i] = rationale_weight
+        else:
+            labels[i] = -100  # ignore instructions/system/user tokens
+
+    tokenized["labels"] = labels
+    tokenized["loss_weights"] = weights
+    tokenized.pop("offset_mapping", None)
     return tokenized
 
 
@@ -318,6 +357,35 @@ def maybe_apply_lora(model: AutoModelForCausalLM, cfg: DistillConfig):
     return model
 
 
+class WeightedTrainer(Trainer):
+    """Trainer with per-token loss weights."""
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        weights = inputs.pop("loss_weights", None)
+        labels = inputs.get("labels")
+        outputs = model(**inputs)
+        logits = outputs.logits
+        loss = None
+        if labels is not None:
+            vocab_size = logits.size(-1)
+            loss_fct = F.cross_entropy
+            loss_flat = loss_fct(
+                logits.view(-1, vocab_size),
+                labels.view(-1),
+                reduction="none",
+            )
+            if weights is not None:
+                weight_flat = torch.tensor(weights, device=logits.device, dtype=loss_flat.dtype).view_as(labels).view(-1)
+                # Only keep positions with labels != -100
+                valid = labels.view(-1) != -100
+                loss = (loss_flat[valid] * weight_flat[valid]).sum() / (weight_flat[valid].sum() + 1e-8)
+            else:
+                loss = loss_flat[labels.view(-1) != -100].mean()
+        else:
+            loss = outputs.loss
+        return (loss, outputs) if return_outputs else loss
+
+
 def run_distillation(cfg: DistillConfig) -> None:
     rows = load_jsonl(cfg.data_file, cfg.max_samples)
     id_sequence = load_id_sequence(cfg.intersection_file if cfg.mode == "structured" else None)
@@ -334,23 +402,24 @@ def run_distillation(cfg: DistillConfig) -> None:
 
     instructions = build_instructions(cfg.mode, cfg.strategy)
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.model_name, use_fast=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
     tokenizer.padding_side = "right"
 
-    def _tokenize(batch: dict) -> dict:
+    def _tokenize(example: dict) -> dict:
         return tokenize_examples(
-            batch,
+            example,
             tokenizer=tokenizer,
             max_length=cfg.max_length,
             instructions=instructions,
             pad_to_max=cfg.pad_to_max,
+            rationale_weight=cfg.rationale_weight,
         )
 
     tokenized_ds = raw_ds.map(
         _tokenize,
-        batched=True,
+        batched=False,
         remove_columns=raw_ds.column_names,
     )
 
@@ -401,7 +470,7 @@ def run_distillation(cfg: DistillConfig) -> None:
         report_to="none",
     )
 
-    trainer = Trainer(
+    trainer = WeightedTrainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_ds,
@@ -561,6 +630,7 @@ def main() -> None:
         gen_output_file=gen_output_file,
         max_gen_samples=args.max_gen_samples,
         max_new_tokens=args.max_new_tokens,
+        rationale_weight=args.rationale_weight,
     )
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     run_distillation(cfg)
