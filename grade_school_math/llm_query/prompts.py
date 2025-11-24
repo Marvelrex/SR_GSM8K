@@ -45,7 +45,7 @@ Requirements:
 
 STRUCTURED_STEP_PART_THREE = """
 Think through the solution step by step. Break the reasoning into a small number of concise labeled steps 
-(The number of steps depends on question difficulty but no more than five steps). Each step should contain no more than three short sentences.
+(The number of steps depends on question difficulty). Each step should contain no more than three short sentences.
 
 Then return ONLY a valid JSON object with the following structure:
 

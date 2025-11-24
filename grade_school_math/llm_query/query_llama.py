@@ -46,14 +46,17 @@ def ask_model(
     device: th.device,
 ) -> str:
     """Send the prompt text to the target model and return its response."""
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-    
-    # Create the full prompt string from the chat template
-    prompt_string = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    
+    # Minimal manual prompt to avoid reliance on chat templates.
+    sys_text = system_prompt.strip()
+    user_text = user_prompt.strip()
+    segments = []
+    if sys_text:
+        segments.append(sys_text)
+    if user_text:
+        segments.append(f"User: {user_text}")
+    segments.append("Assistant:")
+    prompt_string = "\n\n".join(segments)
+
     # Tokenize the prompt string to get input_ids and attention_mask
     inputs = tokenizer(prompt_string, return_tensors="pt").to(device)
 
@@ -61,8 +64,8 @@ def ask_model(
     outputs = model.generate(
         **inputs,
         max_new_tokens=512,
-        do_sample=True,
-        temperature=0.2,
+        do_sample=False,
+        temperature=0,
     )
     
     # Decode only the newly generated tokens, skipping the prompt
@@ -84,7 +87,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # --- Model and Tokenizer Initialization ---
-    set_global_seed(42)
+    set_global_seed(18)
     print(f"Loading model: {args.model}")
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
@@ -99,8 +102,8 @@ def main() -> None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
         
     # Set generation temperature and sampling configuration
-    model.generation_config.temperature = 0.2
-    model.generation_config.do_sample = True
+    model.generation_config.temperature = 0
+    model.generation_config.do_sample = False
 
     model.to(device)
     model.eval()

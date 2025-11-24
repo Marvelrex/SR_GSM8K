@@ -73,7 +73,7 @@ def ask_model(system_prompt: str, user_prompt: str, model_name: str) -> str:
                 {"role": "user", "content": user_prompt},
             ],
             seed=42,
-            temperature=0.2,
+            temperature=0,
         )
         return extract_response_text(response)
     except Exception as exc:
