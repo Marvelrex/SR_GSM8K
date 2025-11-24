@@ -107,6 +107,12 @@ def parse_args() -> argparse.Namespace:
         default=Path("/home/jyang001/jyang001/projects/SR_GSM8K/grade_school_math"),
         help="Base directory to store prediction JSONL files (default: project root).",
     )
+    parser.add_argument(
+        "--rationale-weight",
+        type=float,
+        default=0.5,
+        help="Relative loss weight for rationale tokens vs answer tokens (passed to distill_rationale.py).",
+    )
     return parser.parse_args()
 
 
@@ -156,6 +162,7 @@ def build_base_cmd(
             cmd += ["--test-file", str(args.test_file)]
         if args.gen_output_file:
             cmd += ["--gen-output-file", str(args.gen_output_file)]
+    cmd += ["--rationale-weight", str(args.rationale_weight)]
     return cmd
 
 
