@@ -119,6 +119,24 @@ def parse_args() -> argparse.Namespace:
         default=0.5,
         help="Relative loss weight for rationale tokens vs answer tokens (passed to distill_rationale.py).",
     )
+    parser.add_argument(
+        "--num-epochs",
+        type=float,
+        default=4.0,
+        help="Number of epochs to pass through to distill_rationale.py (default: 4).",
+    )
+    parser.add_argument(
+        "--train-size",
+        type=int,
+        default=None,
+        help="Limit the number of training examples (passed through).",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=2,
+        help="Per-device batch size to pass through (default: 2).",
+    )
     return parser.parse_args()
 
 
@@ -146,11 +164,11 @@ def build_base_cmd(
         str(SCRIPT),
         "--bf16",
         "--batch-size",
-        "2",
+        str(args.batch_size),
         "--grad-accum",
         str(args.grad_accum),
         "--num-epochs",
-        "4",
+        str(args.num_epochs),
         "--mode",
         mode,
         "--data-file",
@@ -202,7 +220,8 @@ def main() -> None:
     args = parse_args()
     data_path = args.data_file or default_data_file(args.mode, args.strategy)
     base_cmd = build_base_cmd(args.mode, data_path, args.strategy, args.intersection_file, args)
-    for size in args.train_sizes:
+    sizes = [args.train_size] if args.train_size is not None else args.train_sizes
+    for size in sizes:
         run_experiment(size, base_cmd, args.mode, args.strategy, args)
 
 

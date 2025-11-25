@@ -498,7 +498,7 @@ def run_distillation(cfg: DistillConfig) -> None:
         logging_first_step=True,
         log_level="info",
         save_steps=cfg.save_steps,
-        save_total_limit=999999,
+        save_total_limit=2,
         bf16=cfg.bf16 and has_cuda,
         fp16=(not cfg.bf16) and has_cuda,
         gradient_checkpointing=use_gradient_checkpointing,
@@ -569,6 +569,9 @@ def run_generation(
                 continue
             messages = build_messages_for_inference(row, instructions)
             prompt_text = format_chat(tokenizer, messages, add_generation_prompt=True)
+            print(f"\n[GEN] index={row_id}")
+            print("---- Prompt ----")
+            print(prompt_text)
             inputs = tokenizer(
                 prompt_text, return_tensors="pt", truncation=True, max_length=max_len
             ).to(model.device)
@@ -578,13 +581,14 @@ def run_generation(
                     max_new_tokens=max_new_tokens,
                     do_sample=False,
                     temperature=0.0,
-                    eos_token_id=tokenizer.eos_token_id,
-                    pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
+                    min_new_tokens=1,
                 )
             gen_text = tokenizer.decode(
                 generated[0][inputs["input_ids"].shape[-1] :],
                 skip_special_tokens=True,
             )
+            print("---- Model response ----")
+            print(gen_text.strip())
             brace_end = gen_text.find("}")
             if brace_end != -1:
                 gen_text = gen_text[: brace_end + 1]
