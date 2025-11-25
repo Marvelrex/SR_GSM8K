@@ -620,8 +620,16 @@ def run_generation(
                 ).strip()
             print("---- Model response ----")
             print(gen_text.strip())
-            gold_ans_text = row.get("answer") or ""
-            rationale_part, ans_part = parse_answer_field(gold_ans_text)
+            # Prefer model-provided rationale/ans fields when present; fall back to parsing the dataset answer text.
+            rationale_part = row.get("response_rationale")
+            ans_part = row.get("response_ans", row.get("gold", row.get("gold_ans")))
+            if rationale_part is None or ans_part is None:
+                gold_ans_text = row.get("answer") or row.get("answer_from_dataset") or ""
+                parsed_rat, parsed_ans = parse_answer_field(gold_ans_text)
+                if rationale_part is None:
+                    rationale_part = parsed_rat
+                if ans_part is None:
+                    ans_part = parsed_ans
             handle.write(
                 json.dumps(
                     {
