@@ -132,12 +132,6 @@ def parse_args() -> argparse.Namespace:
         help="Number of epochs to pass through to distill_rationale.py (default: 4).",
     )
     parser.add_argument(
-        "--train-size",
-        type=int,
-        default=None,
-        help="Limit the number of training examples (passed through).",
-    )
-    parser.add_argument(
         "--batch-size",
         type=int,
         default=2,
