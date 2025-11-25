@@ -222,10 +222,10 @@ def _coerce_plain_text(value: object) -> str:
             return stripped
     if isinstance(value, dict):
         parts: List[str] = []
-        for _, v in value.items():  # preserve original field order
+        for k, v in value.items():  # preserve original field order
             text = _coerce_plain_text(v)
             if text:
-                parts.append(text)
+                parts.append(f"{k}: {text}")
         return " ".join(parts).strip()
     if isinstance(value, list):
         parts = [_coerce_plain_text(v) for v in value]
