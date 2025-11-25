@@ -274,7 +274,7 @@ def tokenize_examples(
         chat_text,
         truncation=True,
         max_length=max_length,
-        padding="max_length" if pad_to_max else "longest",
+        padding="max_length",
         return_offsets_mapping=True,
     )
     input_ids = tokenized["input_ids"]
