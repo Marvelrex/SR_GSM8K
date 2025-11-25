@@ -13,6 +13,7 @@ Your task:
 Solve the question and return ONLY a valid JSON object.
 Do NOT include extra text, markdown, explanations, preambles, or trailing commentary.
 JSON only.
+Ensure the JSON is valid (use a comma between "rationale" and "ans" fields).
 """
 
 NORMAL_PART_THREE = """
