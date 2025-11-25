@@ -44,9 +44,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--strategy",
-        choices=["step", "fixed", "freeform", "noisy"],
-        default="step",
-        help="Structured strategy to use when --mode=structured (default: step).",
+        type=str,
+        default=None,
+        help="Structured strategy to use when --mode=structured (defaults to step when omitted).",
     )
     parser.add_argument(
         "--intersection-file",
@@ -137,6 +137,16 @@ def parse_args() -> argparse.Namespace:
         default=2,
         help="Per-device batch size to pass through (default: 2).",
     )
+    parser.add_argument(
+        "--flatten-targets",
+        action="store_true",
+        help="Flatten rationale/ans fields before training (passed to distill_rationale.py).",
+    )
+    parser.add_argument(
+        "--print-chat",
+        action="store_true",
+        help="Print the formatted chat used for tokenization for every example.",
+    )
     return parser.parse_args()
 
 
@@ -180,7 +190,7 @@ def build_base_cmd(
         "--logging-steps",
         str(args.logging_steps),
     ]
-    if mode == "structured":
+    if mode == "structured" and strategy:
         cmd += ["--strategy", strategy]
         if intersection_file:
             cmd += ["--intersection-file", str(intersection_file)]
@@ -191,6 +201,10 @@ def build_base_cmd(
         if args.gen_output_file:
             cmd += ["--gen-output-file", str(args.gen_output_file)]
     cmd += ["--rationale-weight", str(args.rationale_weight)]
+    if args.flatten_targets:
+        cmd.append("--flatten-targets")
+    if args.print_chat:
+        cmd.append("--print-chat")
     return cmd
 
 
@@ -220,11 +234,21 @@ def run_experiment(train_size: int, base_cmd: list[str], mode: str, strategy: st
 
 def main() -> None:
     args = parse_args()
-    data_path = args.data_file or default_data_file(args.mode, args.strategy)
-    base_cmd = build_base_cmd(args.mode, data_path, args.strategy, args.intersection_file, args)
+    strategy = args.strategy
+    if args.mode == "structured":
+        valid = {"step", "fixed", "freeform", "noisy"}
+        if strategy is None:
+            strategy = "step"
+        elif strategy not in valid:
+            raise SystemExit(f"--strategy must be one of {sorted(valid)} when --mode=structured.")
+    else:
+        strategy = None
+
+    data_path = args.data_file or default_data_file(args.mode, strategy or "step")
+    base_cmd = build_base_cmd(args.mode, data_path, strategy or "", args.intersection_file, args)
     sizes = [args.train_size] if args.train_size is not None else args.train_sizes
     for size in sizes:
-        run_experiment(size, base_cmd, args.mode, args.strategy, args)
+        run_experiment(size, base_cmd, args.mode, strategy or "", args)
 
 
 if __name__ == "__main__":

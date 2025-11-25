@@ -106,8 +106,9 @@ class DistillConfig:
     gen_output_file: Path
     max_gen_samples: Optional[int]
     max_new_tokens: int
-    train_size: Optional[int]
     rationale_weight: float
+    flatten_targets: bool
+    print_chat: bool
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -186,6 +187,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=0.5,
         help="Relative loss weight for rationale tokens vs answer tokens (default: 0.5).",
     )
+    parser.add_argument(
+        "--flatten-targets",
+        action="store_true",
+        help="Flatten rationale/ans fields into plain text before building the target JSON (default: off).",
+    )
+    parser.add_argument(
+        "--print-chat",
+        action="store_true",
+        help="Print the formatted chat string used for tokenization for every example.",
+    )
     return parser
 
 
@@ -194,6 +205,45 @@ def slugify(text: str) -> str:
     text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
     text = re.sub(r"_+", "_", text).strip("_")
     return text or "model"
+
+
+def _coerce_plain_text(value: object) -> str:
+    """Flatten structured rationale/answer fields into plain sentences."""
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        try:
+            parsed = json.loads(stripped)
+            return _coerce_plain_text(parsed)
+        except Exception:
+            return stripped
+    if isinstance(value, dict):
+        parts: List[str] = []
+        for _, v in value.items():  # preserve original field order
+            text = _coerce_plain_text(v)
+            if text:
+                parts.append(text)
+        return " ".join(parts).strip()
+    if isinstance(value, list):
+        parts = [_coerce_plain_text(v) for v in value]
+        return " ".join(p for p in parts if p).strip()
+    return str(value).strip()
+
+
+def _clean_answer(value: object) -> object:
+    """Prefer numeric answers; fall back to plain text if parsing fails."""
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        as_float = float(str(value).strip())
+        if as_float.is_integer():
+            return int(as_float)
+        return as_float
+    except Exception:
+        return _coerce_plain_text(value)
 
 
 def load_jsonl(path: Path, limit: Optional[int] = None) -> List[dict]:
@@ -244,13 +294,13 @@ def load_id_sequence(path: Optional[Path]) -> Optional[List[str]]:
 def build_messages(example: dict, instructions: str) -> List[Dict[str, str]]:
     system = prompt_module.PART_ONE_ROLE.strip()
     user = f"Question:\n{example.get('question','').strip()}\n\n{instructions}"
-    target = json.dumps(
-        {
-            "rationale": example.get("response_rationale", ""),
-            "ans": example.get("response_ans", example.get("option", "")),
-        },
-        ensure_ascii=False,
-    )
+    target = None  # filled below to keep branches clear
+    rationale_value = example.get("response_rationale", "")
+    answer_value = example.get("response_ans", example.get("option", ""))
+    if example.get("_flatten_targets"):
+        rationale_value = _coerce_plain_text(rationale_value)
+        answer_value = _clean_answer(answer_value)
+    target = json.dumps({"rationale": rationale_value, "ans": answer_value}, ensure_ascii=False)
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -265,12 +315,21 @@ def tokenize_examples(
     instructions: str,
     pad_to_max: bool,
     rationale_weight: float,
+    flatten_targets: bool,
+    print_chat: bool,
 ) -> dict:
     # Flatten the chat into a single text sequence and rely on the causal LM loss
     # over the entire example (system + user + assistant JSON), matching the
     # baseline script the user provided.
+    if flatten_targets:
+        example = dict(example)
+        example["_flatten_targets"] = True
     chat = build_messages(example, instructions)
     chat_text = format_chat(tokenizer, chat, add_generation_prompt=False)
+    if print_chat:
+        sample_id = example.get("index") or example.get("id") or ""
+        prefix = f"[TOKENIZE] id={sample_id}" if sample_id != "" else "[TOKENIZE]"
+        print(f"{prefix}\n{chat_text}\n", flush=True)
     tokenized = tokenizer(
         chat_text,
         truncation=True,
@@ -371,6 +430,8 @@ def run_distillation(cfg: DistillConfig) -> None:
             instructions=instructions,
             pad_to_max=cfg.pad_to_max,
             rationale_weight=cfg.rationale_weight,
+            flatten_targets=cfg.flatten_targets,
+            print_chat=cfg.print_chat,
         )
 
     tokenized_ds = raw_ds.map(
@@ -641,6 +702,8 @@ def main() -> None:
         max_gen_samples=args.max_gen_samples,
         max_new_tokens=args.max_new_tokens,
         rationale_weight=args.rationale_weight,
+        flatten_targets=args.flatten_targets,
+        print_chat=args.print_chat,
     )
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     run_distillation(cfg)

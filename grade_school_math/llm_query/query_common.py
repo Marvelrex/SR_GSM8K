@@ -282,7 +282,6 @@ def _parse_json_or_literal(json_text: str) -> Dict[str, Any] | None:
         pass
     return None
 
-
 def _content_chunks(response_obj) -> List[str]:
     """Yield text chunks from different model response shapes."""
     chunks: List[str] = []
