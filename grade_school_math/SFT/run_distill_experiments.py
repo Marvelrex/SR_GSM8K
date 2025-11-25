@@ -102,6 +102,12 @@ def parse_args() -> argparse.Namespace:
         help="Checkpoint save frequency (steps) passed to distill_rationale.py (default: 250).",
     )
     parser.add_argument(
+        "--logging-steps",
+        type=int,
+        default=25,
+        help="Logging frequency (steps) passed to distill_rationale.py (default: 25).",
+    )
+    parser.add_argument(
         "--output-root",
         type=Path,
         default=Path("/home/jyang001/scratch"),
@@ -177,6 +183,8 @@ def build_base_cmd(
         args.model_name,
         "--save-steps",
         str(args.save_steps),
+        "--logging-steps",
+        str(args.logging_steps),
     ]
     if mode == "structured":
         cmd += ["--strategy", strategy]
