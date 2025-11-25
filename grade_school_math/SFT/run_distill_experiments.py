@@ -246,8 +246,7 @@ def main() -> None:
 
     data_path = args.data_file or default_data_file(args.mode, strategy or "step")
     base_cmd = build_base_cmd(args.mode, data_path, strategy or "", args.intersection_file, args)
-    sizes = [args.train_size] if args.train_size is not None else args.train_sizes
-    for size in sizes:
+    for size in args.train_sizes:
         run_experiment(size, base_cmd, args.mode, strategy or "", args)
 
 
