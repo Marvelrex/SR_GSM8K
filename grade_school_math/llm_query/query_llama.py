@@ -47,7 +47,9 @@ def ask_model(
 ) -> str:
     """Send the prompt text to the target model and return its response."""
     system_msg = {"role": "system", "content": system_prompt.strip()}
-    user_msg = {"role": "user", "content": user_prompt.strip()}
+    # Reinforce JSON-only format to the model
+    user_content = user_prompt.strip() + "\nReturn ONLY valid JSON with keys rationale and ans."
+    user_msg = {"role": "user", "content": user_content}
     messages = [system_msg, user_msg]
 
     if getattr(tokenizer, "chat_template", None):
@@ -60,11 +62,17 @@ def ask_model(
 
     inputs = tokenizer(prompt_string, return_tensors="pt").to(device)
 
+    eos_id = tokenizer.eos_token_id
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else eos_id
+
     outputs = model.generate(
         **inputs,
-        max_new_tokens=256,
+        max_new_tokens=512,
         do_sample=False,
         temperature=0.0,
+        top_p=1.0,
+        eos_token_id=eos_id,
+        pad_token_id=pad_id,
     )
 
     response_ids = outputs[0][inputs["input_ids"].shape[-1]:]

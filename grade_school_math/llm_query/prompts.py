@@ -4,93 +4,98 @@ Shared prompt strings for generating and distilling MathQA rationales.
 
 from __future__ import annotations
 
-PART_ONE_ROLE = """You are a rigorous but concise math tutor. 
+PART_ONE_ROLE = """You are a rigorous but concise math tutor.
 You solve math problems carefully and explain your reasoning briefly and clearly.
-Avoid unnecessary prose or speculation; show only the key steps needed to reach the answer."""
+Avoid unnecessary prose; show only the key steps needed to reach the answer."""
 
 PART_TWO_TASK = """
 Your task:
-Solve the question and give a numeric answer in json format.
+Solve the question and return ONLY a valid JSON object.
+Do NOT include extra text, markdown, explanations, preambles, or trailing commentary.
+JSON only.
 """
 
 NORMAL_PART_THREE = """
-Think step by step in a few precise steps (No more than six sentences) to solve the problem.
-Then output ONLY a compact JSON string with the following keys:
-  {"rationale": "<explanation>", "ans": <numeric_answer>}
-Do not include anything else before or after the JSON. The "ans" must be a number, not a string.
+Think step by step in a few precise steps (no more than six sentences) to solve the problem.
+
+Then output ONLY a compact JSON object of the form:
+{
+  "rationale": "<explanation>",
+  "ans": <numeric_answer>
+}
+
+Rules:
+- "ans" must be a number, not a string.
+- No additional text before or after the JSON.
 """
 
 STRUCTURED_NOISE_PART_THREE = """
-Think through the solution by reasoning in three labeled parts:
-- Understanding: Briefly interpret the problem and identify what is being asked (one sentence).
-- Derivation: Show the essential mathematical steps or transformations needed to solve it, no more than four short sentences (you may include simple equations).
-- Calculation: Provide the final numerical computation in one short sentence.
+Reason in three labeled parts:
+- Understanding: Briefly state what the problem asks (one sentence).
+- Derivation: Show the essential math steps (no more than four short sentences).
+- Calculation: Provide the final numerical computation (one short sentence).
 
-Then return ONLY a valid JSON object with the following structure:
-
+Then output ONLY a valid JSON object:
 {
   "rationale": {
-    "Understanding": "<one or two short sentence>",
-    "Derivation": "<no more than four short sentences>",
-    "Calculation": "<one or two short sentence>"
+    "Understanding": "<one short sentence>",
+    "Derivation": "<up to four short sentences>",
+    "Calculation": "<one short sentence>"
   },
   "ans": <numeric final answer>
 }
 
-Requirements:
-- Output valid JSON only.
-- The rationale fields must be concise but cover the key reasoning steps.
-- The "ans" field must be a number, not a string.
+Rules:
+- JSON only.
+- All rationale fields must be concise.
+- "ans" must be numeric.
 """
 
 STRUCTURED_STEP_PART_THREE = """
-Think through the solution step by step. Break the reasoning into a small number of concise labeled steps 
-(The number of steps depends on question difficulty). Each step should contain no more than three short sentences.
+Think through the solution step by step. Use a small number of labeled steps.
+Each step may contain up to three short sentences.
 
-Then return ONLY a valid JSON object with the following structure:
-
+Output ONLY this JSON format:
 {
   "rationale": {
-    "step_one": "<no more than three sentences>",
-    "step_two": "<no more than three sentences>",
-    "...": "... as needed ..."
+    "step_one": "<up to three concise sentences>",
+    "step_two": "<up to three concise sentences>",
+    "step_three": "... as needed ..."
   },
   "ans": <numeric final answer>
 }
 
-Requirements:
-- Output valid JSON only.
-- Number steps sequentially as step_one, step_two, step_three, etc.
-- Each step must be logically incremental and relevant.
-- The "ans" field must be a number, not a string.
+Rules:
+- JSON only.
+- Steps must be sequentially named (step_one, step_two, step_three, ...).
+- "ans" must be numeric.
 """
 
 
 STRUCTURED_FIXED_PART_THREE = """
-Think through the solution by reasoning in two labeled parts:
-- Understanding: Briefly interpret the problem and identify what is being asked (one sentence).
-- Derivation: Show the essential mathematical steps or transformations needed to solve it, no more than four short sentences (you may include simple equations).
+Reason in two labeled parts:
+- Understanding: Briefly state what the problem asks (one sentence).
+- Derivation: Provide the key math steps (up to six short sentences).
 
-Then return ONLY a valid JSON object with the following structure:
-
+Output ONLY this JSON format:
 {
   "rationale": {
-    "Understanding": "<one or two short sentence>",
-    "Derivation": "<No more than six short sentences>"
+    "Understanding": "<one short sentence>",
+    "Derivation": "<up to six short sentences>"
   },
   "ans": <numeric final answer>
 }
 
-Requirements:
-- Output valid JSON only.
-- The rationale fields must be concise but cover the key reasoning steps.
-- The "ans" field must be a number, not a string.
+Rules:
+- JSON only.
+- "ans" must be numeric.
 """
 
 STRUCTURED_FREE_FORM_PART_THREE = """
-Think through the solution by reasoning, you can set the field_name according to the question details.
-Then return ONLY a valid JSON object with the following structure:
+Reason freely using up to three fields under "rationale".
+Choose field names appropriate to the problem (e.g., "Setup", "Logic", "Compute").
 
+Output ONLY this JSON format:
 {
   "rationale": {
     "<field_name_1>": "<short sentences>",
@@ -100,12 +105,11 @@ Then return ONLY a valid JSON object with the following structure:
   "ans": <numeric final answer>
 }
 
-Follow these rules:
-- Under "rationale", use no more than three fields in total.
-- You may choose any human-readable field names that reflect their purpose.
-- Each field value must be very concise, using short, minimal-word sentences.
-- Keep only the important reasoning steps needed to solve the question.
+Rules:
+- Use no more than three rationale fields.
+- Field names must be human-readable.
+- Each field must contain short, essential reasoning.
 - Do not use abbreviations.
-- The "ans" field must be a number, not a string.
-- Respond with valid JSON only. Do not include any extra text, explanation, or markdown before or after the JSON.
+- JSON only.
+- "ans" must be numeric.
 """
