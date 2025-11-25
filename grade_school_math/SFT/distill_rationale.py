@@ -295,8 +295,9 @@ def tokenize_examples(
         ans_text = str(ans_val or "")
 
     assistant_start = chat_text.rfind(assistant_json)
-    rat_range = ans_range = None
+    rat_range = ans_range = json_range = None
     if assistant_start != -1:
+        json_range = (assistant_start, assistant_start + len(assistant_json))
         if rat_text:
             rat_pos = assistant_json.find(rat_text)
             if rat_pos != -1:
@@ -311,6 +312,7 @@ def tokenize_examples(
 
     pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
     weights = [0.0 for _ in labels]
+    scaffold_weight = max(0.2, min(rationale_weight, 0.5))
 
     if assistant_start == -1:
         # Fallback: label all non-pad tokens equally when span detection fails
@@ -328,6 +330,9 @@ def tokenize_examples(
                 weights[i] = 1.0
             elif rat_range and start < rat_range[1] and end > rat_range[0]:
                 weights[i] = rationale_weight
+            elif json_range and start < json_range[1] and end > json_range[0]:
+                # Lightly supervise JSON scaffolding/braces/keys to preserve structure.
+                weights[i] = scaffold_weight
             else:
                 labels[i] = -100  # ignore instructions/system/user tokens
 
@@ -571,6 +576,7 @@ def run_generation(
         temperature=0.7,
         top_p=0.9,
         min_new_tokens=8,
+        repetition_penalty=1.05,
         eos_token_id=eos_arg,
         pad_token_id=pad_id,
     )
