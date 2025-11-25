@@ -283,7 +283,6 @@ def tokenize_examples(
 
     # Identify rationale/answer spans in character space
     rat_val = example.get("response_rationale", "")
-    # response_rationale may be dict (structured); stringify for span search
     if isinstance(rat_val, (dict, list)):
         rat_text = json.dumps(rat_val, ensure_ascii=False)
     else:
@@ -306,20 +305,31 @@ def tokenize_examples(
             ans_pos = assistant_json.find(str(ans_text))
             if ans_pos != -1:
                 ans_range = (assistant_start + ans_pos, assistant_start + ans_pos + len(str(ans_text)))
+        # Fallback: if we failed to find specific spans, train on the whole assistant JSON
+        if ans_range is None and rat_range is None:
+            ans_range = (assistant_start, assistant_start + len(assistant_json))
 
-    weights = [0.0 for _ in labels]
     pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    weights = [0.0 for _ in labels]
 
-    for i, (start, end) in enumerate(offsets):
-        if labels[i] == pad_id:
-            labels[i] = -100
-            continue
-        if ans_range and start < ans_range[1] and end > ans_range[0]:
-            weights[i] = 1.0
-        elif rat_range and start < rat_range[1] and end > rat_range[0]:
-            weights[i] = rationale_weight
-        else:
-            labels[i] = -100  # ignore instructions/system/user tokens
+    if assistant_start == -1:
+        # Fallback: label all non-pad tokens equally when span detection fails
+        for i in range(len(labels)):
+            if labels[i] == pad_id:
+                labels[i] = -100
+            else:
+                weights[i] = 1.0
+    else:
+        for i, (start, end) in enumerate(offsets):
+            if labels[i] == pad_id:
+                labels[i] = -100
+                continue
+            if ans_range and start < ans_range[1] and end > ans_range[0]:
+                weights[i] = 1.0
+            elif rat_range and start < rat_range[1] and end > rat_range[0]:
+                weights[i] = rationale_weight
+            else:
+                labels[i] = -100  # ignore instructions/system/user tokens
 
     tokenized["labels"] = labels
     tokenized["loss_weights"] = weights
@@ -485,8 +495,10 @@ def run_distillation(cfg: DistillConfig) -> None:
         warmup_ratio=cfg.warmup_ratio,
         save_strategy="steps",
         logging_steps=cfg.logging_steps,
+        logging_first_step=True,
+        log_level="info",
         save_steps=cfg.save_steps,
-        save_total_limit=3,
+        save_total_limit=999999,
         bf16=cfg.bf16 and has_cuda,
         fp16=(not cfg.bf16) and has_cuda,
         gradient_checkpointing=use_gradient_checkpointing,
@@ -566,11 +578,16 @@ def run_generation(
                     max_new_tokens=max_new_tokens,
                     do_sample=False,
                     temperature=0.0,
+                    eos_token_id=tokenizer.eos_token_id,
+                    pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
                 )
             gen_text = tokenizer.decode(
                 generated[0][inputs["input_ids"].shape[-1] :],
                 skip_special_tokens=True,
             )
+            brace_end = gen_text.find("}")
+            if brace_end != -1:
+                gen_text = gen_text[: brace_end + 1]
             gold_ans_text = row.get("answer") or ""
             rationale_part, ans_part = parse_answer_field(gold_ans_text)
             handle.write(

@@ -96,6 +96,12 @@ def parse_args() -> argparse.Namespace:
         help="Model name/id to pass through (default: meta-llama/Llama-3.2-1B-Instruct).",
     )
     parser.add_argument(
+        "--save-steps",
+        type=int,
+        default=250,
+        help="Checkpoint save frequency (steps) passed to distill_rationale.py (default: 250).",
+    )
+    parser.add_argument(
         "--output-root",
         type=Path,
         default=Path("/home/jyang001/scratch"),
@@ -151,6 +157,8 @@ def build_base_cmd(
         str(data_file),
         "--model-name",
         args.model_name,
+        "--save-steps",
+        str(args.save_steps),
     ]
     if mode == "structured":
         cmd += ["--strategy", strategy]
