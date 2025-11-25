@@ -37,7 +37,7 @@ import torch
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    DataCollatorForLanguageModeling,
+    default_data_collator,
     Trainer,
     TrainingArguments,
 )
@@ -274,7 +274,7 @@ def tokenize_examples(
         chat_text,
         truncation=True,
         max_length=max_length,
-        padding="max_length" if pad_to_max else "max_length",
+        padding="max_length" if pad_to_max else "longest",
         return_offsets_mapping=True,
     )
     input_ids = tokenized["input_ids"]
@@ -483,7 +483,8 @@ def run_distillation(cfg: DistillConfig) -> None:
     else:
         print("Gradient checkpointing disabled (requires CUDA for efficiency).", flush=True)
 
-    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    # Preserve our precomputed labels and loss weights; use a simple collator so labels are not overwritten.
+    data_collator = default_data_collator
 
     training_args = TrainingArguments(
         output_dir=str(cfg.output_dir),
@@ -548,6 +549,43 @@ def run_generation(
     rows = load_jsonl(test_path, limit=max_rows)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    eos_id = tokenizer.eos_token_id
+    eot_id = None
+    try:
+        eot_id = tokenizer.convert_tokens_to_ids("<|eot_id|>")
+    except Exception:
+        pass
+    eos_token_ids = []
+    if isinstance(eos_id, list):
+        eos_token_ids.extend(eos_id)
+    elif eos_id is not None:
+        eos_token_ids.append(eos_id)
+    if eot_id is not None and eot_id not in eos_token_ids and eot_id != -1:
+        eos_token_ids.append(eot_id)
+    eos_arg = eos_token_ids if eos_token_ids else eos_id
+    pad_id = tokenizer.pad_token_id or eos_id
+
+    base_gen_kwargs = dict(
+        max_new_tokens=max_new_tokens,
+        do_sample=True,
+        temperature=0.7,
+        top_p=0.9,
+        min_new_tokens=8,
+        eos_token_id=eos_arg,
+        pad_token_id=pad_id,
+    )
+
+    fallback_gen_kwargs = dict(
+        max_new_tokens=max_new_tokens,
+        do_sample=True,
+        temperature=1.0,
+        top_p=0.95,
+        min_new_tokens=8,
+        repetition_penalty=1.1,
+        eos_token_id=eos_arg,
+        pad_token_id=pad_id,
+    )
+
     completed_ids: set[str] = set()
     if out_path.exists():
         try:
@@ -576,25 +614,28 @@ def run_generation(
                 prompt_text, return_tensors="pt", truncation=True, max_length=max_len
             ).to(model.device)
             with torch.no_grad():
-                generated = model.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=True,
-                    temperature=0.7,
-                    top_p=0.9,
-                    min_new_tokens=1,
-                    eos_token_id=tokenizer.eos_token_id,
-                    pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
-                )
+                generated = model.generate(**inputs, **base_gen_kwargs)
             gen_text = tokenizer.decode(
                 generated[0][inputs["input_ids"].shape[-1] :],
                 skip_special_tokens=True,
             )
+            # Fallback: if nothing was produced or only prompt length returned, retry with more permissive sampling
+            if not gen_text.strip() or generated.shape[1] == inputs["input_ids"].shape[1]:
+                print("Empty generation; retrying with fallback sampling...", flush=True)
+                with torch.no_grad():
+                    generated = model.generate(**inputs, **fallback_gen_kwargs)
+                gen_text = tokenizer.decode(
+                    generated[0][inputs["input_ids"].shape[-1] :],
+                    skip_special_tokens=True,
+                )
+            if not gen_text.strip():
+                # Last resort: expose raw tokens to aid debugging.
+                gen_text = tokenizer.decode(
+                    generated[0][inputs["input_ids"].shape[-1] :],
+                    skip_special_tokens=False,
+                ).strip()
             print("---- Model response ----")
             print(gen_text.strip())
-            brace_end = gen_text.find("}")
-            if brace_end != -1:
-                gen_text = gen_text[: brace_end + 1]
             gold_ans_text = row.get("answer") or ""
             rationale_part, ans_part = parse_answer_field(gold_ans_text)
             handle.write(

@@ -63,21 +63,59 @@ def ask_model(
     inputs = tokenizer(prompt_string, return_tensors="pt").to(device)
 
     eos_id = tokenizer.eos_token_id
+    eot_id = None
+    try:
+        eot_id = tokenizer.convert_tokens_to_ids("<|eot_id|>")
+    except Exception:
+        pass
+
+    eos_token_ids = []
+    if isinstance(eos_id, list):
+        eos_token_ids.extend(eos_id)
+    elif eos_id is not None:
+        eos_token_ids.append(eos_id)
+    if eot_id is not None and eot_id not in eos_token_ids and eot_id != -1:
+        eos_token_ids.append(eot_id)
+    eos_arg = eos_token_ids if eos_token_ids else eos_id
+
     pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else eos_id
 
-    outputs = model.generate(
-        **inputs,
+    generation_kwargs = dict(
         max_new_tokens=512,
         do_sample=False,
         temperature=0.0,
         top_p=1.0,
-        eos_token_id=eos_id,
+        eos_token_id=eos_arg,
         pad_token_id=pad_id,
+        min_new_tokens=1,
     )
 
+    outputs = model.generate(**inputs, **generation_kwargs)
+
     response_ids = outputs[0][inputs["input_ids"].shape[-1]:]
-    response = tokenizer.decode(response_ids, skip_special_tokens=True)
-    return response.strip()
+    response = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
+
+    if not response:
+        # Fallback: if greedy decoding immediately returns only an EOS/EOT token, retry with mild sampling.
+        print("Empty response from greedy decode; retrying with sampling fallback...", flush=True)
+        fallback_kwargs = generation_kwargs.copy()
+        fallback_kwargs.update(
+            {
+                "do_sample": True,
+                "temperature": 0.8,
+                "top_p": 0.95,
+                "min_new_tokens": 8,
+                "repetition_penalty": 1.05,
+            }
+        )
+        outputs = model.generate(**inputs, **fallback_kwargs)
+        response_ids = outputs[0][inputs["input_ids"].shape[-1]:]
+        response = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
+        if not response:
+            # Last resort: return the raw decode so the caller can see special tokens.
+            response = tokenizer.decode(response_ids, skip_special_tokens=False).strip()
+
+    return response
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
