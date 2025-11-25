@@ -37,7 +37,7 @@ import torch
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    default_data_collator,
+    DataCollatorForLanguageModeling,
     Trainer,
     TrainingArguments,
 )
@@ -266,79 +266,17 @@ def tokenize_examples(
     pad_to_max: bool,
     rationale_weight: float,
 ) -> dict:
+    # Flatten the chat into a single text sequence and rely on the causal LM loss
+    # over the entire example (system + user + assistant JSON), matching the
+    # baseline script the user provided.
     chat = build_messages(example, instructions)
-    assistant_json = str(chat[-1]["content"])
     chat_text = format_chat(tokenizer, chat, add_generation_prompt=False)
-
     tokenized = tokenizer(
         chat_text,
         truncation=True,
         max_length=max_length,
-        padding="max_length",
-        return_offsets_mapping=True,
+        padding="max_length" if pad_to_max else "max_length",
     )
-    input_ids = tokenized["input_ids"]
-    labels = input_ids.copy()
-    offsets = tokenized["offset_mapping"]
-
-    # Identify rationale/answer spans in character space
-    rat_val = example.get("response_rationale", "")
-    if isinstance(rat_val, (dict, list)):
-        rat_text = json.dumps(rat_val, ensure_ascii=False)
-    else:
-        rat_text = str(rat_val or "")
-
-    ans_val = example.get("response_ans", example.get("option", ""))
-    if isinstance(ans_val, (dict, list)):
-        ans_text = json.dumps(ans_val, ensure_ascii=False)
-    else:
-        ans_text = str(ans_val or "")
-
-    assistant_start = chat_text.rfind(assistant_json)
-    rat_range = ans_range = json_range = None
-    if assistant_start != -1:
-        json_range = (assistant_start, assistant_start + len(assistant_json))
-        if rat_text:
-            rat_pos = assistant_json.find(rat_text)
-            if rat_pos != -1:
-                rat_range = (assistant_start + rat_pos, assistant_start + rat_pos + len(rat_text))
-        if ans_text:
-            ans_pos = assistant_json.find(str(ans_text))
-            if ans_pos != -1:
-                ans_range = (assistant_start + ans_pos, assistant_start + ans_pos + len(str(ans_text)))
-        # Fallback: if we failed to find specific spans, train on the whole assistant JSON
-        if ans_range is None and rat_range is None:
-            ans_range = (assistant_start, assistant_start + len(assistant_json))
-
-    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-    weights = [0.0 for _ in labels]
-    scaffold_weight = max(0.2, min(rationale_weight, 0.5))
-
-    if assistant_start == -1:
-        # Fallback: label all non-pad tokens equally when span detection fails
-        for i in range(len(labels)):
-            if labels[i] == pad_id:
-                labels[i] = -100
-            else:
-                weights[i] = 1.0
-    else:
-        for i, (start, end) in enumerate(offsets):
-            if labels[i] == pad_id:
-                labels[i] = -100
-                continue
-            if ans_range and start < ans_range[1] and end > ans_range[0]:
-                weights[i] = 1.0
-            elif rat_range and start < rat_range[1] and end > rat_range[0]:
-                weights[i] = rationale_weight
-            elif json_range and start < json_range[1] and end > json_range[0]:
-                # Lightly supervise JSON scaffolding/braces/keys to preserve structure.
-                weights[i] = scaffold_weight
-            else:
-                labels[i] = -100  # ignore instructions/system/user tokens
-
-    tokenized["labels"] = labels
-    tokenized["loss_weights"] = weights
-    tokenized.pop("offset_mapping", None)
     return tokenized
 
 
@@ -400,29 +338,8 @@ class WeightedTrainer(Trainer):
     """Trainer with per-token loss weights."""
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
-        weights = inputs.pop("loss_weights", None)
-        labels = inputs.get("labels")
-        outputs = model(**inputs)
-        logits = outputs.logits
-        loss = None
-        if labels is not None:
-            vocab_size = logits.size(-1)
-            loss_fct = F.cross_entropy
-            loss_flat = loss_fct(
-                logits.view(-1, vocab_size),
-                labels.view(-1),
-                reduction="none",
-            )
-            if weights is not None:
-                weight_flat = torch.tensor(weights, device=logits.device, dtype=loss_flat.dtype).view_as(labels).view(-1)
-                # Only keep positions with labels != -100
-                valid = labels.view(-1) != -100
-                loss = (loss_flat[valid] * weight_flat[valid]).sum() / (weight_flat[valid].sum() + 1e-8)
-            else:
-                loss = loss_flat[labels.view(-1) != -100].mean()
-        else:
-            loss = outputs.loss
-        return (loss, outputs) if return_outputs else loss
+        # In this simplified setting, fall back to the standard Trainer loss (labels provided by collator).
+        return super().compute_loss(model, inputs, return_outputs=return_outputs, **kwargs)
 
 
 def run_distillation(cfg: DistillConfig) -> None:
@@ -488,8 +405,8 @@ def run_distillation(cfg: DistillConfig) -> None:
     else:
         print("Gradient checkpointing disabled (requires CUDA for efficiency).", flush=True)
 
-    # Preserve our precomputed labels and loss weights; use a simple collator so labels are not overwritten.
-    data_collator = default_data_collator
+    # Standard causal LM collator (labels = input_ids, mask pads).
+    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     training_args = TrainingArguments(
         output_dir=str(cfg.output_dir),
