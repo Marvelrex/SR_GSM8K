@@ -46,32 +46,29 @@ def ask_model(
     device: th.device,
 ) -> str:
     """Send the prompt text to the target model and return its response."""
-    # Minimal manual prompt to avoid reliance on chat templates.
-    sys_text = system_prompt.strip()
-    user_text = user_prompt.strip()
-    segments = []
-    if sys_text:
-        segments.append(sys_text)
-    if user_text:
-        segments.append(f"User: {user_text}")
-    segments.append("Assistant:")
-    prompt_string = "\n\n".join(segments)
+    system_msg = {"role": "system", "content": system_prompt.strip()}
+    user_msg = {"role": "user", "content": user_prompt.strip()}
+    messages = [system_msg, user_msg]
 
-    # Tokenize the prompt string to get input_ids and attention_mask
+    if getattr(tokenizer, "chat_template", None):
+        prompt_string = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+    else:
+        # Fallback for models without chat_template (e.g., older Llama-2 base)
+        prompt_string = f"<s>[INST] <<SYS>>\n{system_prompt.strip()}\n<</SYS>>\n\n{user_prompt.strip()} [/INST]"
+
     inputs = tokenizer(prompt_string, return_tensors="pt").to(device)
 
-    # Generate a response, passing both input_ids and attention_mask
     outputs = model.generate(
         **inputs,
-        max_new_tokens=512,
+        max_new_tokens=256,
         do_sample=False,
-        temperature=0,
+        temperature=0.0,
     )
-    
-    # Decode only the newly generated tokens, skipping the prompt
+
     response_ids = outputs[0][inputs["input_ids"].shape[-1]:]
     response = tokenizer.decode(response_ids, skip_special_tokens=True)
-    
     return response.strip()
 
 
