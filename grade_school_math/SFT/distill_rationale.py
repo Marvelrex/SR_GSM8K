@@ -207,8 +207,12 @@ def slugify(text: str) -> str:
     return text or "model"
 
 
-def _coerce_plain_text(value: object) -> str:
-    """Flatten structured rationale/answer fields into plain sentences."""
+def _coerce_plain_text(value: object, key_order: Optional[List[str]] = None) -> str:
+    """Flatten structured rationale/answer fields into plain sentences.
+
+    key_order can be provided to preserve the original JSON key order when a dict
+    has been reordered by downstream tooling (e.g., HF Dataset/Arrow).
+    """
     if value is None:
         return ""
     if isinstance(value, (int, float)):
@@ -217,12 +221,24 @@ def _coerce_plain_text(value: object) -> str:
         stripped = value.strip()
         try:
             parsed = json.loads(stripped)
-            return _coerce_plain_text(parsed)
+            return _coerce_plain_text(parsed, key_order=key_order)
         except Exception:
             return stripped
     if isinstance(value, dict):
         parts: List[str] = []
-        for k, v in value.items():  # preserve the original JSON key order
+        ordered_keys = key_order if key_order else list(value.keys())
+        seen: set[str] = set()
+        for k in ordered_keys:  # prefer the recorded order when provided
+            if k not in value:
+                continue
+            seen.add(k)
+            text = _coerce_plain_text(value[k])
+            if text:
+                parts.append(f"{k}: {text}")
+        # Include any unexpected keys that were not in key_order at the end.
+        for k, v in value.items():
+            if k in seen:
+                continue
             text = _coerce_plain_text(v)
             if text:
                 parts.append(f"{k}: {text}")
@@ -256,7 +272,12 @@ def load_jsonl(path: Path, limit: Optional[int] = None) -> List[dict]:
             if not line:
                 continue
             try:
-                rows.append(json.loads(line))
+                obj = json.loads(line)
+                if isinstance(obj, dict):
+                    rat = obj.get("response_rationale")
+                    if isinstance(rat, dict):
+                        obj["_rationale_key_order"] = list(rat.keys())
+                rows.append(obj)
             except json.JSONDecodeError:
                 continue
             if limit is not None and len(rows) >= limit:
@@ -296,9 +317,11 @@ def build_messages(example: dict, instructions: str) -> List[Dict[str, str]]:
     user = f"Question:\n{example.get('question','').strip()}\n\n{instructions}"
     target = None  # filled below to keep branches clear
     rationale_value = example.get("response_rationale", "")
-    answer_value = example.get("response_ans", example.get("option", ""))
+    answer_value = example.get("response_ans")
     if example.get("_flatten_targets"):
-        rationale_value = _coerce_plain_text(rationale_value)
+        key_order = example.get("_rationale_key_order")
+        rationale_value = _coerce_plain_text(rationale_value, key_order=key_order)
+        print("After flatten: "+rationale_value)
         answer_value = _clean_answer(answer_value)
     target = json.dumps({"rationale": rationale_value, "ans": answer_value}, ensure_ascii=False)
     return [
