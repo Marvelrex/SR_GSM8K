@@ -222,7 +222,7 @@ def _coerce_plain_text(value: object) -> str:
             return stripped
     if isinstance(value, dict):
         parts: List[str] = []
-        for k, v in value.items():  # preserve original field order
+        for k, v in value.items():  # preserve the original JSON key order
             text = _coerce_plain_text(v)
             if text:
                 parts.append(f"{k}: {text}")
