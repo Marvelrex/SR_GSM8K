@@ -249,6 +249,19 @@ def _coerce_plain_text(value: object, key_order: Optional[List[str]] = None) -> 
     return str(value).strip()
 
 
+def _reorder_dict(d: Dict[str, object], key_order: Optional[List[str]]) -> Dict[str, object]:
+    """Return a shallow copy of d ordered by key_order (extras appended)."""
+    if not key_order:
+        return {k: v for k, v in d.items() if v is not None}
+    ordered: Dict[str, object] = {k: d[k] for k in key_order if k in d}
+    for k, v in d.items():
+        if k not in ordered:
+            if v is None:
+                continue
+            ordered[k] = v
+    return ordered
+
+
 def _clean_answer(value: object) -> object:
     """Prefer numeric answers; fall back to plain text if parsing fails."""
     if isinstance(value, (int, float)):
@@ -318,11 +331,13 @@ def build_messages(example: dict, instructions: str) -> List[Dict[str, str]]:
     target = None  # filled below to keep branches clear
     rationale_value = example.get("response_rationale", "")
     answer_value = example.get("response_ans")
+    key_order = example.get("_rationale_key_order")
     if example.get("_flatten_targets"):
-        key_order = example.get("_rationale_key_order")
         rationale_value = _coerce_plain_text(rationale_value, key_order=key_order)
         print("After flatten: "+rationale_value)
         answer_value = _clean_answer(answer_value)
+    elif isinstance(rationale_value, dict):
+        rationale_value = _reorder_dict(rationale_value, key_order)
     target = json.dumps({"rationale": rationale_value, "ans": answer_value}, ensure_ascii=False)
     return [
         {"role": "system", "content": system},
