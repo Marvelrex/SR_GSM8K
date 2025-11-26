@@ -106,7 +106,6 @@ class DistillConfig:
     gen_output_file: Path
     max_gen_samples: Optional[int]
     max_new_tokens: int
-    rationale_weight: float
     flatten_targets: bool
     print_chat: bool
 
@@ -180,12 +179,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=256,
         help="Max new tokens to generate (default: 256).",
-    )
-    parser.add_argument(
-        "--rationale-weight",
-        type=float,
-        default=0.5,
-        help="Relative loss weight for rationale tokens vs answer tokens (default: 0.5).",
     )
     parser.add_argument(
         "--flatten-targets",
@@ -352,7 +345,6 @@ def tokenize_examples(
     max_length: int,
     instructions: str,
     pad_to_max: bool,
-    rationale_weight: float,
     flatten_targets: bool,
     print_chat: bool,
 ) -> dict:
@@ -467,7 +459,6 @@ def run_distillation(cfg: DistillConfig) -> None:
             max_length=cfg.max_length,
             instructions=instructions,
             pad_to_max=cfg.pad_to_max,
-            rationale_weight=cfg.rationale_weight,
             flatten_targets=cfg.flatten_targets,
             print_chat=cfg.print_chat,
         )
@@ -747,7 +738,6 @@ def main() -> None:
         gen_output_file=gen_output_file,
         max_gen_samples=args.max_gen_samples,
         max_new_tokens=args.max_new_tokens,
-        rationale_weight=args.rationale_weight,
         flatten_targets=args.flatten_targets,
         print_chat=args.print_chat,
     )

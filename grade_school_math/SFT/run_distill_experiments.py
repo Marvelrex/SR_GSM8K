@@ -120,12 +120,6 @@ def parse_args() -> argparse.Namespace:
         help="Base directory to store prediction JSONL files (default: project root).",
     )
     parser.add_argument(
-        "--rationale-weight",
-        type=float,
-        default=0.5,
-        help="Relative loss weight for rationale tokens vs answer tokens (passed to distill_rationale.py).",
-    )
-    parser.add_argument(
         "--num-epochs",
         type=float,
         default=4.0,
@@ -200,7 +194,6 @@ def build_base_cmd(
             cmd += ["--test-file", str(args.test_file)]
         if args.gen_output_file:
             cmd += ["--gen-output-file", str(args.gen_output_file)]
-    cmd += ["--rationale-weight", str(args.rationale_weight)]
     if args.flatten_targets:
         cmd.append("--flatten-targets")
     if args.print_chat:
