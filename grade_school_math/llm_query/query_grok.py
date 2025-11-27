@@ -55,7 +55,7 @@ def _client_kwargs() -> dict:
     return kwargs
 
 
-def ask_model(system_prompt: str, user_prompt: str, model_name: str) -> str:
+def ask_model(system_prompt: str, user_prompt: str, model_name: str, temperature: float | None) -> str:
     """Send the prompt text to the target model and return its response."""
     if OpenAI is None:  # pragma: no cover - ensures clear guidance for users
         raise SystemExit(
@@ -65,6 +65,7 @@ def ask_model(system_prompt: str, user_prompt: str, model_name: str) -> str:
     client = OpenAI(**_client_kwargs())
 
     print("Attempting to query model with chat API...")
+    temp = 0.0 if temperature is None else float(temperature)
     try:
         response = client.chat.completions.create(
             model=model_name,
@@ -73,7 +74,7 @@ def ask_model(system_prompt: str, user_prompt: str, model_name: str) -> str:
                 {"role": "user", "content": user_prompt},
             ],
             seed=42,
-            temperature=0,
+            temperature=temp,
         )
         return extract_response_text(response)
     except Exception as exc:
@@ -178,7 +179,12 @@ def main() -> None:
         model_reply = None
         for attempt in range(1, max_attempts + 1):
             try:
-                model_reply = ask_model(formatted_system_prompt, formatted_user_prompt, args.model)
+                    model_reply = ask_model(
+                        formatted_system_prompt,
+                        formatted_user_prompt,
+                        args.model,
+                        args.temperature,
+                    )
                 print("Model response:")
                 print(model_reply)
                 print()

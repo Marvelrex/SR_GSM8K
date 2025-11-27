@@ -46,6 +46,8 @@ def build_command(
     model: str,
     output_dir: Path,
     show_only: bool,
+    temperature: float | None,
+    do_sample: bool | None,
 ) -> List[str]:
     cmd = [
         sys.executable,
@@ -63,6 +65,12 @@ def build_command(
         "--output-dir",
         str(output_dir),
     ]
+    if temperature is not None:
+        cmd += ["--temperature", str(temperature)]
+    if do_sample is True:
+        cmd.append("--do-sample")
+    elif do_sample is False:
+        cmd.append("--no-do-sample")
     if show_only:
         cmd.append("--show-only")
     return cmd
@@ -109,6 +117,8 @@ def run_batches(args: argparse.Namespace) -> None:
             model=args.model,
             output_dir=output_dir,
             show_only=args.show_only,
+            temperature=args.temperature,
+            do_sample=args.do_sample,
         )
 
         max_attempts = max_strategy_retries
@@ -180,10 +190,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Directory where per-strategy folders will be created (default: data/structure_rationale).",
     )
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Override generation temperature (default: use each script's default).",
+    )
+    parser.add_argument(
+        "--do-sample",
+        dest="do_sample",
+        action="store_true",
+        help="Enable sampling for generation (default: script-specific).",
+    )
+    parser.add_argument(
+        "--no-do-sample",
+        dest="do_sample",
+        action="store_false",
+        help="Disable sampling for generation (default: script-specific).",
+    )
+    parser.add_argument(
         "--show-only",
         action="store_true",
         help="Pass --show-only through to the chosen query script.",
     )
+    parser.set_defaults(do_sample=None)
     return parser
 
 

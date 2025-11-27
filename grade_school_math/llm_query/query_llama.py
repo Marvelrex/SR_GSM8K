@@ -42,6 +42,8 @@ def ask_model(
     model: AutoModelForCausalLM,
     tokenizer: AutoTokenizer,
     device: th.device,
+    temperature: float | None,
+    do_sample: bool | None,
 ) -> str:
     """Send the prompt text to the target model and return its response."""
     system_msg = {"role": "system", "content": system_prompt.strip()}
@@ -78,10 +80,12 @@ def ask_model(
 
     pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else eos_id
 
+    temp = 0.0 if temperature is None else float(temperature)
+    sample = False if do_sample is None else bool(do_sample)
     generation_kwargs = dict(
         max_new_tokens=512,
-        do_sample=False,
-        temperature=0.3,
+        do_sample=sample,
+        temperature=temp,
         top_p=1.0,
         eos_token_id=eos_arg,
         pad_token_id=pad_id,
@@ -123,8 +127,10 @@ def main() -> None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
         
     # Set generation temperature and sampling configuration
-    model.generation_config.temperature = 0
-    model.generation_config.do_sample = False
+    temp = 0.0 if args.temperature is None else float(args.temperature)
+    do_sample = False if args.do_sample is None else bool(args.do_sample)
+    model.generation_config.temperature = temp
+    model.generation_config.do_sample = do_sample
 
     model.to(device)
     model.eval()
@@ -203,6 +209,8 @@ def main() -> None:
                         model,
                         tokenizer,
                         device,
+                        args.temperature,
+                        args.do_sample,
                     )
                 print("Model response:")
                 print(model_reply)

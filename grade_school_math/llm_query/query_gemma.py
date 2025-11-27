@@ -43,14 +43,18 @@ def ask_model(
     model: AutoModelForCausalLM,
     tokenizer: AutoTokenizer,
     device: th.device,
+    temperature: float | None,
+    do_sample: bool | None,
 ) -> str:
     """Send the prompt text to the target model and return its response."""
+    temp = 0.0 if temperature is None else float(temperature)
+    sample = False if do_sample is None else bool(do_sample)
     input_ids = tokenizer(user_prompt, return_tensors="pt").to(device)
     outputs = model.generate(
         **input_ids,
         max_new_tokens=512,
-        do_sample=True,
-        temperature=0.2,
+        do_sample=sample,
+        temperature=temp,
     )
     response = tokenizer.decode(outputs[0], skip_special_tokens=True)
     # The response includes the original prompt, so we need to remove it.
@@ -155,7 +159,14 @@ def main() -> None:
         for attempt in range(1, max_attempts + 1):
             try:
                 with th.no_grad():
-                    model_reply = ask_model(chat_prompt, model, tokenizer, device)
+                    model_reply = ask_model(
+                        chat_prompt,
+                        model,
+                        tokenizer,
+                        device,
+                        args.temperature,
+                        args.do_sample,
+                    )
                 print("Model response:")
                 print(model_reply)
                 print()

@@ -41,7 +41,7 @@ from query_common import (
 DEFAULT_MODEL = "gpt-4o-mini"
 
 
-def ask_model(system_prompt: str, user_prompt: str, model_name: str) -> str:
+def ask_model(system_prompt: str, user_prompt: str, model_name: str, temperature: float | None) -> str:
     """Send the prompt text to the target model and return its response."""
     if OpenAI is None:  # pragma: no cover - surfaced quickly for users
         raise SystemExit(
@@ -49,6 +49,7 @@ def ask_model(system_prompt: str, user_prompt: str, model_name: str) -> str:
             "Install it with `pip install openai`."
         )
     client = OpenAI()
+    temp = 0.0 if temperature is None else float(temperature)
     response = client.chat.completions.create(
         model=model_name,
         messages=[
@@ -56,7 +57,7 @@ def ask_model(system_prompt: str, user_prompt: str, model_name: str) -> str:
             {"role": "user", "content": user_prompt},
         ],
         seed=42,
-        temperature=0,
+        temperature=temp,
     )
     return extract_response_text(response)
 
@@ -140,7 +141,12 @@ def main() -> None:
         model_reply = None
         for attempt in range(1, max_attempts + 1):
             try:
-                model_reply = ask_model(formatted_system_prompt, formatted_user_prompt, args.model)
+                model_reply = ask_model(
+                        formatted_system_prompt,
+                        formatted_user_prompt,
+                        args.model,
+                        args.temperature,
+                )
                 print("Model response:")
                 print(model_reply)
                 print()

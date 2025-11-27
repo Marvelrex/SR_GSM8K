@@ -99,10 +99,29 @@ def build_common_arg_parser(description: str, default_model: str) -> argparse.Ar
         help=f"Directory to store responses (default: {DEFAULT_OUTPUT_DIR}).",
     )
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Override generation temperature (default: use script/model default).",
+    )
+    parser.add_argument(
+        "--do-sample",
+        dest="do_sample",
+        action="store_true",
+        help="Enable sampling for generation (default: use script/model default).",
+    )
+    parser.add_argument(
+        "--no-do-sample",
+        dest="do_sample",
+        action="store_false",
+        help="Disable sampling for generation (default: use script/model default).",
+    )
+    parser.add_argument(
         "--show-only",
         action="store_true",
         help="Print the samples and prompt but do not call the model.",
     )
+    parser.set_defaults(do_sample=None)
     return parser
 
 
