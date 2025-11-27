@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict
 
@@ -32,23 +33,43 @@ def is_correct(gold, pred) -> bool:
         return str(gold).strip() == str(pred).strip()
 
 
-def extract_pred(entry: Dict[str, Any]):
-    """Extract predicted answer from either new or legacy schema."""
-    # Legacy field
-    if "response_ans" in entry:
-        return entry.get("response_ans")
-
-    # New schema: model_response may be a JSON string containing {"ans": ...}
-    resp = entry.get("model_response")
-    if isinstance(resp, dict):
-        return resp.get("ans")
-    if isinstance(resp, str):
+def _extract_ans(field: Any):
+    """Return the 'ans' value when the field is a dict or JSON string."""
+    if isinstance(field, dict):
+        return field.get("ans")
+    if isinstance(field, str):
         try:
-            parsed = json.loads(resp)
-            if isinstance(parsed, dict) and "ans" in parsed:
+            parsed = json.loads(field)
+            if isinstance(parsed, dict):
                 return parsed.get("ans")
         except json.JSONDecodeError:
-            pass
+            match = re.search(r'"ans"\s*:\s*([-+]?\d+(?:\.\d+)?)', field)
+            if match:
+                num = match.group(1)
+                try:
+                    as_float = float(num)
+                    return int(as_float) if as_float.is_integer() else as_float
+                except ValueError:
+                    return num
+    return None
+
+
+def extract_pred(entry: Dict[str, Any]):
+    """Extract predicted answer from either new or legacy schema."""
+    # Legacy or explicit field
+    if "response_ans" in entry and entry.get("response_ans") is not None:
+        return entry.get("response_ans")
+
+    # New schema: model_response may be a JSON string or dict containing {"ans": ...}
+    pred = _extract_ans(entry.get("model_response"))
+    if pred is not None:
+        return pred
+
+    # Normal prompt may stash the JSON in response_rationale when response_ans is null.
+    pred = _extract_ans(entry.get("response_rationale"))
+    if pred is not None:
+        return pred
+
     return None
 
 
