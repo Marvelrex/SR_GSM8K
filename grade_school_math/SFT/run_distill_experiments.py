@@ -72,6 +72,25 @@ def parse_args() -> argparse.Namespace:
         help="Max new tokens to generate when --generate is set (default: 256).",
     )
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Generation temperature to pass through to distill_rationale.py (default: 0.0).",
+    )
+    parser.add_argument(
+        "--do-sample",
+        dest="do_sample",
+        action="store_true",
+        help="Enable sampling for generation (default: off).",
+    )
+    parser.add_argument(
+        "--no-do-sample",
+        dest="do_sample",
+        action="store_false",
+        help="Disable sampling for generation (default: off).",
+    )
+    parser.set_defaults(do_sample=False)
+    parser.add_argument(
         "--test-file",
         type=Path,
         default=None,
@@ -189,7 +208,19 @@ def build_base_cmd(
         if intersection_file:
             cmd += ["--intersection-file", str(intersection_file)]
     if args.generate:
-        cmd += ["--generate", "--max-gen-samples", str(args.max_gen_samples), "--max-new-tokens", str(args.max_new_tokens)]
+        cmd += [
+            "--generate",
+            "--max-gen-samples",
+            str(args.max_gen_samples),
+            "--max-new-tokens",
+            str(args.max_new_tokens),
+            "--temperature",
+            str(args.temperature),
+        ]
+        if args.do_sample:
+            cmd.append("--do-sample")
+        else:
+            cmd.append("--no-do-sample")
         if args.test_file:
             cmd += ["--test-file", str(args.test_file)]
         if args.gen_output_file:

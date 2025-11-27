@@ -106,6 +106,8 @@ class DistillConfig:
     gen_output_file: Path
     max_gen_samples: Optional[int]
     max_new_tokens: int
+    temperature: float
+    do_sample: bool
     flatten_targets: bool
     print_chat: bool
 
@@ -180,6 +182,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=512,
         help="Max new tokens to generate (default: 512).",
     )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Generation temperature when --generate is enabled (default: 0.0).",
+    )
+    parser.add_argument(
+        "--do-sample",
+        dest="do_sample",
+        action="store_true",
+        help="Enable sampling when generating (--generate).",
+    )
+    parser.add_argument(
+        "--no-do-sample",
+        dest="do_sample",
+        action="store_false",
+        help="Disable sampling when generating (--generate).",
+    )
+    parser.set_defaults(do_sample=False)
     parser.add_argument(
         "--flatten-targets",
         action="store_true",
@@ -544,6 +565,8 @@ def run_distillation(cfg: DistillConfig) -> None:
             cfg.max_new_tokens,
             instructions,
             cfg.max_gen_samples,
+            cfg.temperature,
+            cfg.do_sample,
         )
 
 
@@ -556,6 +579,8 @@ def run_generation(
     max_new_tokens: int,
     instructions: str,
     max_rows: Optional[int],
+    temperature: float,
+    do_sample: bool,
 ) -> None:
     model.eval()
     rows = load_jsonl(test_path, limit=max_rows)
@@ -579,8 +604,8 @@ def run_generation(
 
     generation_kwargs = dict(
         max_new_tokens=max_new_tokens,
-        do_sample=False,
-        temperature=0.0,
+        do_sample=bool(do_sample),
+        temperature=float(temperature),
         top_p=1.0,
         eos_token_id=eos_arg,
         pad_token_id=pad_id,
@@ -717,6 +742,8 @@ def main() -> None:
         gen_output_file=gen_output_file,
         max_gen_samples=args.max_gen_samples,
         max_new_tokens=args.max_new_tokens,
+        temperature=args.temperature,
+        do_sample=args.do_sample,
         flatten_targets=args.flatten_targets,
         print_chat=args.print_chat,
     )
