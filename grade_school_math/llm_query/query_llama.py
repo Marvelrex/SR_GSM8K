@@ -19,8 +19,6 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import prompts as prompt_module
 from query_common import (
-    DEFAULT_DATASET_PATH,
-    DEFAULT_OUTPUT_DIR,
     DEFAULT_STRATEGY,
     build_common_arg_parser,
     build_prompt_texts,
@@ -83,7 +81,7 @@ def ask_model(
     generation_kwargs = dict(
         max_new_tokens=512,
         do_sample=False,
-        temperature=0.0,
+        temperature=0.3,
         top_p=1.0,
         eos_token_id=eos_arg,
         pad_token_id=pad_id,
@@ -94,26 +92,6 @@ def ask_model(
 
     response_ids = outputs[0][inputs["input_ids"].shape[-1]:]
     response = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
-
-    if not response:
-        # Fallback: if greedy decoding immediately returns only an EOS/EOT token, retry with mild sampling.
-        print("Empty response from greedy decode; retrying with sampling fallback...", flush=True)
-        fallback_kwargs = generation_kwargs.copy()
-        fallback_kwargs.update(
-            {
-                "do_sample": True,
-                "temperature": 0.8,
-                "top_p": 0.95,
-                "min_new_tokens": 8,
-                "repetition_penalty": 1.05,
-            }
-        )
-        outputs = model.generate(**inputs, **fallback_kwargs)
-        response_ids = outputs[0][inputs["input_ids"].shape[-1]:]
-        response = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
-        if not response:
-            # Last resort: return the raw decode so the caller can see special tokens.
-            response = tokenizer.decode(response_ids, skip_special_tokens=False).strip()
 
     return response
 
