@@ -177,8 +177,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-new-tokens",
         type=int,
-        default=256,
-        help="Max new tokens to generate (default: 256).",
+        default=512,
+        help="Max new tokens to generate (default: 512).",
     )
     parser.add_argument(
         "--flatten-targets",
@@ -577,26 +577,14 @@ def run_generation(
     eos_arg = eos_token_ids if eos_token_ids else eos_id
     pad_id = tokenizer.pad_token_id or eos_id
 
-    base_gen_kwargs = dict(
+    generation_kwargs = dict(
         max_new_tokens=max_new_tokens,
-        do_sample=True,
-        temperature=0.7,
-        top_p=0.9,
-        min_new_tokens=8,
-        repetition_penalty=1.05,
+        do_sample=False,
+        temperature=0.0,
+        top_p=1.0,
         eos_token_id=eos_arg,
         pad_token_id=pad_id,
-    )
-
-    fallback_gen_kwargs = dict(
-        max_new_tokens=max_new_tokens,
-        do_sample=True,
-        temperature=1.0,
-        top_p=0.95,
-        min_new_tokens=8,
-        repetition_penalty=1.1,
-        eos_token_id=eos_arg,
-        pad_token_id=pad_id,
+        min_new_tokens=1,
     )
 
     completed_ids: set[str] = set()
@@ -627,20 +615,11 @@ def run_generation(
                 prompt_text, return_tensors="pt", truncation=True, max_length=max_len
             ).to(model.device)
             with torch.no_grad():
-                generated = model.generate(**inputs, **base_gen_kwargs)
+                generated = model.generate(**inputs, **generation_kwargs)
             gen_text = tokenizer.decode(
                 generated[0][inputs["input_ids"].shape[-1] :],
                 skip_special_tokens=True,
             )
-            # Fallback: if nothing was produced or only prompt length returned, retry with more permissive sampling
-            if not gen_text.strip() or generated.shape[1] == inputs["input_ids"].shape[1]:
-                print("Empty generation; retrying with fallback sampling...", flush=True)
-                with torch.no_grad():
-                    generated = model.generate(**inputs, **fallback_gen_kwargs)
-                gen_text = tokenizer.decode(
-                    generated[0][inputs["input_ids"].shape[-1] :],
-                    skip_special_tokens=True,
-                )
             if not gen_text.strip():
                 # Last resort: expose raw tokens to aid debugging.
                 gen_text = tokenizer.decode(
