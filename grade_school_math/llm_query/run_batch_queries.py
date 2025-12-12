@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import List
 
+from query_common import DEFAULT_NORMAL_SHOTS
+
 print("Executing run_batch_queries.py...")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +50,7 @@ def build_command(
     show_only: bool,
     temperature: float | None,
     do_sample: bool | None,
+    normal_shots: int,
 ) -> List[str]:
     cmd = [
         sys.executable,
@@ -64,6 +67,8 @@ def build_command(
         model,
         "--output-dir",
         str(output_dir),
+        "--normal-shots",
+        str(normal_shots),
     ]
     if temperature is not None:
         cmd += ["--temperature", str(temperature)]
@@ -119,6 +124,7 @@ def run_batches(args: argparse.Namespace) -> None:
             show_only=args.show_only,
             temperature=args.temperature,
             do_sample=args.do_sample,
+            normal_shots=max(args.normal_shots, 0),
         )
 
         max_attempts = max_strategy_retries
@@ -188,6 +194,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         default=PROJECT_ROOT / "data" / "structure_rationale",
         help="Directory where per-strategy folders will be created (default: data/structure_rationale).",
+    )
+    parser.add_argument(
+        "--normal-shots",
+        type=int,
+        default=DEFAULT_NORMAL_SHOTS,
+        help=(
+            f"Few-shot count for the normal strategy (default: {DEFAULT_NORMAL_SHOTS}; "
+            "use 0 to disable examples)."
+        ),
     )
     parser.add_argument(
         "--temperature",

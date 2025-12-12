@@ -120,7 +120,9 @@ def main() -> None:
     )
     system_prompt = str(base_system_prompt or "").strip() or "You are a rigorous but concise math tutor."
     part_two_prompt = str(getattr(prompt_module, "PART_TWO_TASK", "") or "").strip()
-    part_three_name, part_three_prompt = pick_part_three_prompt(strategy, prompt_module)
+    part_three_name, part_three_prompt = pick_part_three_prompt(
+        strategy, prompt_module, normal_shots=args.normal_shots
+    )
     combined_prompt_parts = [part.strip() for part in (part_two_prompt, part_three_prompt) if part.strip()]
     if not combined_prompt_parts:
         raise SystemExit("PART_TWO_TASK and strategy prompt are both empty; cannot build user instructions.")
@@ -179,12 +181,12 @@ def main() -> None:
         model_reply = None
         for attempt in range(1, max_attempts + 1):
             try:
-                    model_reply = ask_model(
-                        formatted_system_prompt,
-                        formatted_user_prompt,
-                        args.model,
-                        args.temperature,
-                    )
+                model_reply = ask_model(
+                    formatted_system_prompt,
+                    formatted_user_prompt,
+                    args.model,
+                    args.temperature,
+                )
                 print("Model response:")
                 print(model_reply)
                 print()

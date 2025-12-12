@@ -13,6 +13,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+try:
+    import prompts as prompt_defaults
+
+    DEFAULT_NORMAL_SHOTS = getattr(prompt_defaults, "DEFAULT_NORMAL_FEW_SHOT_COUNT", 0)
+except Exception:
+    DEFAULT_NORMAL_SHOTS = 0
+
 DEFAULT_DATASET_PATH = PROJECT_ROOT / "grade_school_math/data/train.jsonl"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "structure_rationale"
 DEFAULT_STRATEGY = "step"
@@ -85,6 +92,15 @@ def build_common_arg_parser(description: str, default_model: str) -> argparse.Ar
         type=str,
         default=DEFAULT_STRATEGY,
         help="Prompt strategy to use. See query_common.PROMPT_STRATEGIES for options.",
+    )
+    parser.add_argument(
+        "--normal-shots",
+        type=int,
+        default=DEFAULT_NORMAL_SHOTS,
+        help=(
+            f"Number of few-shot examples to include when strategy=normal "
+            f"(default: {DEFAULT_NORMAL_SHOTS}; use 0 to disable)."
+        ),
     )
     parser.add_argument(
         "--model",
@@ -209,7 +225,10 @@ def load_samples(dataset_path: Path, start_index: int, num_samples: int) -> List
 
 
 def pick_part_three_prompt(
-    strategy: str, prompt_module, prompt_strategies: Dict[str, str] = PROMPT_STRATEGIES
+    strategy: str,
+    prompt_module,
+    prompt_strategies: Dict[str, str] = PROMPT_STRATEGIES,
+    normal_shots: int | None = None,
 ) -> Tuple[str, str]:
     """Fetch the part-three instructions for a given strategy."""
     try:
@@ -219,12 +238,20 @@ def pick_part_three_prompt(
         raise SystemExit(f"Unknown prompt strategy '{strategy}'. Valid options: {valid}") from exc
 
     try:
-        prompt_text = getattr(prompt_module, prompt_name)
+        prompt_obj = getattr(prompt_module, prompt_name)
     except AttributeError as exc:
         raise SystemExit(
             f"Prompt constant '{prompt_name}' configured for strategy '{strategy}' "
             "was not found inside utils.prompts."
         ) from exc
+
+    if callable(prompt_obj):
+        try:
+            prompt_text = prompt_obj(normal_shots)
+        except TypeError:
+            prompt_text = prompt_obj()
+    else:
+        prompt_text = prompt_obj
 
     if not isinstance(prompt_text, str):
         raise TypeError(f"Prompt '{prompt_name}' is not a string.")
